@@ -54,8 +54,9 @@ func TestRenderErrorEventKeepsOneLineSummary(t *testing.T) {
 	}
 }
 
-// TestRenderStatusBar 守护底部状态栏的信息契约：模型身份（窗口+思考）、会话令牌、
-// 花费/预算、书目录都必须在（样式剥离后按纯文本断言）。
+// TestRenderStatusBar guards the bottom status bar's information contract: model identity (window +
+// thinking), session tokens, cost/budget and the book directory must all be present (asserted as plain
+// text after styles are stripped).
 func TestRenderStatusBar(t *testing.T) {
 	out := ansi.Strip(renderStatusBar(host.UISnapshot{
 		Provider:           "openrouter",
@@ -96,7 +97,7 @@ func TestRenderUsageLineSeparatesFullWidthNameAndTokens(t *testing.T) {
 }
 
 func TestTruncateByDisplayWidth(t *testing.T) {
-	// 纯中文按视觉宽度截：10 列预算 = 3 个汉字(6列) + "..."(3列)，按 rune 截会溢出到 17 列
+	// Pure Chinese truncates by visual width: a 10-column budget = 3 Han characters (6 columns) + "..." (3 columns); truncating by rune would overflow to 17 columns
 	got := truncate("临港市公共算法伦理审计员", 10)
 	if w := lipgloss.Width(got); w > 10 {
 		t.Errorf("truncate 溢出列宽: %d > 10 (%q)", w, got)
@@ -104,7 +105,7 @@ func TestTruncateByDisplayWidth(t *testing.T) {
 	if !strings.HasSuffix(got, "...") {
 		t.Errorf("超宽截断应带省略号: %q", got)
 	}
-	// ASCII 行为与旧实现一致
+	// ASCII behaviour matches the old implementation
 	if got := truncate("abcdef", 6); got != "abcdef" {
 		t.Errorf("未超宽不应截断: %q", got)
 	}
@@ -127,7 +128,7 @@ func TestRenderDetailContentWrapsCJK(t *testing.T) {
 			t.Errorf("行溢出面板宽度: %d > %d (%q)", w, contentW, line)
 		}
 	}
-	// 长描述应折成多行（悬挂缩进续行），而不是截断丢信息
+	// A long description should fold into multiple lines (hanging-indent continuation) rather than truncating and losing information
 	joined := strings.ReplaceAll(strings.ReplaceAll(out, "\n", ""), " ", "")
 	if !strings.Contains(joined, "坚持程序正义") {
 		t.Errorf("折行后应保留完整描述，实际输出:\n%s", out)

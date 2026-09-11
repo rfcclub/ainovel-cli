@@ -6,8 +6,9 @@ import (
 	"testing"
 )
 
-// TestRawFileSources_ScansAllMarkdownInOrder 验证目录下多个 .md 都被扫到，
-// 按文件名字典序返回；非 .md 文件被忽略；原文原样保留。
+// TestRawFileSources_ScansAllMarkdownInOrder verifies that several .md files in a directory are all
+// picked up and returned in filename lexicographic order, that non-.md files are ignored and that the
+// text is preserved verbatim.
 func TestRawFileSources_ScansAllMarkdownInOrder(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "rules")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -27,7 +28,7 @@ func TestRawFileSources_ScansAllMarkdownInOrder(t *testing.T) {
 	if len(srcs) != 2 {
 		t.Fatalf("应扫到 a.md / b.md 两个来源（.txt 与空白跳过），得到 %d：%+v", len(srcs), srcs)
 	}
-	// 字典序：a 在前 b 在后
+	// Lexicographic order: a before b
 	if srcs[0].Label != "global:a.md" || srcs[1].Label != "global:b.md" {
 		t.Errorf("应按字典序返回，得到 %q, %q", srcs[0].Label, srcs[1].Label)
 	}
@@ -38,7 +39,7 @@ func TestRawFileSources_ScansAllMarkdownInOrder(t *testing.T) {
 	}
 }
 
-// TestRawFileSources_DirMissing 验证目录不存在时静默跳过（返回 nil）。
+// TestRawFileSources_DirMissing verifies a missing directory is skipped silently (returning nil).
 func TestRawFileSources_DirMissing(t *testing.T) {
 	srcs := RawFileSources(LoadOptions{HomeRulesDir: filepath.Join(t.TempDir(), "nope")})
 	if len(srcs) != 0 {
@@ -49,8 +50,9 @@ func TestRawFileSources_DirMissing(t *testing.T) {
 	}
 }
 
-// TestRawFileSources_IgnoresHiddenAndSubdirs 锁死：隐藏/编辑器临时文件（. 开头）被忽略、
-// 子目录不递归——防止脏文件二进制内容当偏好正文注入 LLM。
+// TestRawFileSources_IgnoresHiddenAndSubdirs pins down that hidden/editor temp files (starting with .)
+// are ignored and subdirectories are not recursed — preventing dirty files' binary content from being
+// injected into the LLM as preference prose.
 func TestRawFileSources_IgnoresHiddenAndSubdirs(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "rules")
 	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
@@ -74,7 +76,7 @@ func TestRawFileSources_IgnoresHiddenAndSubdirs(t *testing.T) {
 	}
 }
 
-// TestRawFileSources_GlobalThenProject 验证全局来源在前、项目来源在后。
+// TestRawFileSources_GlobalThenProject verifies global sources come first and project sources after.
 func TestRawFileSources_GlobalThenProject(t *testing.T) {
 	base := t.TempDir()
 	global := filepath.Join(base, "global")

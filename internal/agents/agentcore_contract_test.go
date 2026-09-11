@@ -1,22 +1,28 @@
 package agents
 
-// agentcore 契约测试：把本项目依赖的框架行为钉成可执行断言。
-// 每条测试标注依赖方；bump agentcore 前必须全绿——注释会过时，测试不会。
-// 全部经 subagent.Runner.Run 驱动——这是 Engine 的实际派发通道。
+// agentcore contract tests: pinning the framework behaviour this project depends on as executable
+// assertions.
+// Each test names its dependant; everything must be green before bumping agentcore — comments go
+// stale, tests do not. All of them run through subagent.Runner.Run, which is the Engine's actual
+// dispatch path.
 //
-// 已钉死的契约：
-//  1. StopAfterTools/StopAfterToolResult 终态退出会经过 StopGuard（StopTriggerAfterTool），
-//     guard 否决（InjectMessage）能把 run 拉回继续 —— guard/subagent_guards.go 的任务感知
-//     EditorStopGuard 依赖此行为兜住"被派生成摘要却只做了复核"的提前退出。
-//  2. StopReasonError / StopReasonAborted 直接终止 run，不触达 StopGuard ——
-//     guard/subagent_guards.go 的 hardStopReasons 因此只需列 safety/content_filter。
-//  3. provider 拒答（safety 等非 error 停机）会以 end_turn 路径触达 StopGuard，
-//     且 info.Message.StopReason 保留原值 —— hardStopReasons 的立即升级依赖此路径。
-//  4. StopGuard 返回 InjectMessage 后模型获得新一轮；返回 Escalate 立即终止，
-//     且错误链可被 errors.Is(err, agentcore.ErrStopGuard) 匹配 ——
-//     guard/stop_guard.go 的"物理不可停机"与超限升级依赖此语义。
-//  5. Runner.Run 的错误保持类型化链：未注册 agent 匹配 subagent.ErrUnknownAgent ——
-//     host/engine.go 的 isDeterministicWorkerError 依赖此分类而非错误文案。
+// Contracts already pinned:
+//  1. A terminal exit via StopAfterTools/StopAfterToolResult still passes through the StopGuard
+//     (StopTriggerAfterTool), and a guard veto (InjectMessage) can pull the run back to continue —
+//     the task-aware EditorStopGuard in guard/subagent_guards.go relies on this to catch an early
+//     exit where a summary was assigned but only a review was done.
+//  2. StopReasonError / StopReasonAborted terminate the run directly without reaching the StopGuard —
+//     hardStopReasons in guard/subagent_guards.go therefore needs only safety/content_filter.
+//  3. A provider refusal (safety and other non-error stops) reaches the StopGuard via the end_turn
+//     path and info.Message.StopReason keeps its original value — hardStopReasons' immediate
+//     escalation relies on this path.
+//  4. After the StopGuard returns InjectMessage the model gets a new round; returning Escalate
+//     terminates at once, and the error chain can be matched with
+//     errors.Is(err, agentcore.ErrStopGuard) — guard/stop_guard.go's "physically cannot stop" and
+//     over-threshold escalation rely on this semantic.
+//  5. Runner.Run's errors keep a typed chain: an unregistered agent matches
+//     subagent.ErrUnknownAgent — host/engine.go's isDeterministicWorkerError relies on this
+//     classification rather than on error wording.
 
 import (
 	"context"
@@ -30,7 +36,7 @@ import (
 	"github.com/voocel/agentcore/subagent"
 )
 
-// contractModel 按调用序号返回预设响应的 mock 模型。
+// contractModel is a mock model returning preset responses by call index.
 type contractModel struct {
 	fn  func(i int, msgs []agentcore.Message) (*agentcore.LLMResponse, error)
 	idx int64
@@ -85,18 +91,19 @@ func okTool(name string) agentcore.Tool {
 		})
 }
 
-// runSubagent 用给定配置经 Runner.Run（Engine 的派发通道）跑一次单派发。
-// 返回执行错误——StopGuard 升级终止会以 error 形式浮出（这本身也是契约），
-// 期望正常结束的用例自行断言 nil。
+// runSubagent runs one single dispatch through Runner.Run (the Engine's dispatch path) with the
+// given config. It returns the execution error — a StopGuard escalation termination surfaces as an
+// error (itself part of the contract), and a case expecting a normal finish asserts nil for itself.
 func runSubagent(t *testing.T, cfg subagent.Config) error {
 	t.Helper()
 	_, err := subagent.NewRunner(cfg).Run(context.Background(), cfg.Name, "contract")
 	return err
 }
 
-// 契约 1：终态工具退出经过 StopGuard；guard 否决（InjectMessage）后 run 继续。
-// 依赖方：EditorStopGuard —— save_review 等终态工具命中后，任务感知 guard 必须
-// 有机会把"产物未落盘"的提前退出拉回来。
+// Contract 1: a terminal tool exit passes through the StopGuard and the run continues after a guard
+// veto (InjectMessage).
+// Dependant: EditorStopGuard — once a terminal tool such as save_review is hit, the task-aware guard
+// must get a chance to pull back an early exit where the artifact never landed.
 func TestContract_TerminalToolExitConsultsStopGuard(t *testing.T) {
 	var guardCalls atomic.Int32
 	var trigger atomic.Value
@@ -106,7 +113,7 @@ func TestContract_TerminalToolExitConsultsStopGuard(t *testing.T) {
 		case 0:
 			return &agentcore.LLMResponse{Message: assistantToolCall("finish", `{}`)}, nil
 		default:
-			// guard 否决终态退出后模型必须获得新一轮；这轮正常结束。
+			// After the guard vetoes the terminal exit the model must get a new round; this one ends normally.
 			return &agentcore.LLMResponse{Message: assistantText("done", agentcore.StopReasonStop)}, nil
 		}
 	}}
@@ -144,8 +151,8 @@ func TestContract_TerminalToolExitConsultsStopGuard(t *testing.T) {
 	}
 }
 
-// 契约 2：StopReasonError / StopReasonAborted 直接终止，不触达 StopGuard。
-// 依赖方：hardStopReasons 注释——只需处理会真正走到 guard 的拒答语义。
+// Contract 2: StopReasonError / StopReasonAborted terminate directly without reaching the StopGuard.
+// Dependant: the hardStopReasons comment — only refusal semantics that genuinely reach the guard need handling.
 func TestContract_ErrorAndAbortedStopSkipStopGuard(t *testing.T) {
 	for _, stop := range []agentcore.StopReason{agentcore.StopReasonError, agentcore.StopReasonAborted} {
 		t.Run(string(stop), func(t *testing.T) {
@@ -170,8 +177,8 @@ func TestContract_ErrorAndAbortedStopSkipStopGuard(t *testing.T) {
 	}
 }
 
-// 契约 3：provider 拒答（safety 等）走 end_turn 路径触达 StopGuard，
-// 且 info.Message.StopReason 保留原值。依赖方：hardStopReasons 的立即升级。
+// Contract 3: a provider refusal (safety and the like) reaches the StopGuard via the end_turn path and
+// info.Message.StopReason keeps its original value. Dependant: hardStopReasons' immediate escalation.
 func TestContract_SafetyStopReachesStopGuardWithReason(t *testing.T) {
 	var seen atomic.Value
 	model := &contractModel{fn: func(int, []agentcore.Message) (*agentcore.LLMResponse, error) {
@@ -195,9 +202,10 @@ func TestContract_SafetyStopReachesStopGuardWithReason(t *testing.T) {
 	}
 }
 
-// 契约 4：end_turn 时 InjectMessage 让模型获得新一轮且注入内容在场；
-// Escalate 立即终止，模型不再被调用。依赖方：Worker StopGuard 的
-// "物理不可停机 + 连续超限升级"。
+// Contract 4: at end_turn, InjectMessage gives the model a new round with the injected content
+// present, while Escalate terminates at once and the model is not called again.
+// Dependant: the Worker StopGuard's "physically cannot stop + escalation past a consecutive
+// threshold".
 func TestContract_StopGuardInjectContinuesEscalateTerminates(t *testing.T) {
 	var sawInject atomic.Bool
 	model := &contractModel{fn: func(i int, msgs []agentcore.Message) (*agentcore.LLMResponse, error) {
@@ -241,9 +249,10 @@ func TestContract_StopGuardInjectContinuesEscalateTerminates(t *testing.T) {
 	}
 }
 
-// 契约 5：Runner.Run 的错误保持类型化链——未注册 agent 以 subagent.ErrUnknownAgent
-// 浮出。依赖方：host/engine.go 的 isDeterministicWorkerError（"重试必然同错→
-// 直接暂停"的分类依赖 errors.Is,而非错误文案匹配）。
+// Contract 5: Runner.Run's errors keep a typed chain — an unregistered agent surfaces as
+// subagent.ErrUnknownAgent. Dependant: host/engine.go's isDeterministicWorkerError (the
+// "a retry necessarily fails the same way → pause directly" classification relies on errors.Is, not
+// on error-wording matching).
 func TestContract_RunUnknownAgentIsTyped(t *testing.T) {
 	runner := subagent.NewRunner(subagent.Config{
 		Name: "writer", Description: "contract",

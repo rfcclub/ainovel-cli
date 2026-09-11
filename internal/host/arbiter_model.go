@@ -8,9 +8,10 @@ import (
 	"github.com/voocel/ainovel-cli/internal/llmcontract"
 )
 
-// usageTrackedModel 给模型调用接上用量追踪:token/成本必须进入预算与 usage 系统,
-// 否则预算上限对开销失明、UI 用量不准。记录身份用传入的 agentName——导入归 architect、
-// 裁定归 arbiter(UsageTracker 对未知角色按 Default 价目计费)。
+// usageTrackedModel wires usage tracking onto model calls: tokens/cost must reach the budget and usage
+// systems, or the budget cap goes blind to spend and the UI's usage is wrong. The identity recorded is
+// the agentName passed in — imports count as architect and adjudication as arbiter (UsageTracker bills
+// unknown roles at the Default price).
 type usageTrackedModel struct {
 	inner     agentcore.ChatModel
 	agentName string
@@ -28,8 +29,9 @@ func newUsageTrackedModel(inner agentcore.ChatModel, agentName string, record fu
 	return tracked
 }
 
-// capabilityUsageTrackedModel 保留底层模型的可选能力接口。包装器不能把
-// "不支持 thinking" 擦成 "能力未知"，否则上层会生成 provider 不接受的参数。
+// capabilityUsageTrackedModel preserves the wrapped model's optional capability interfaces. The wrapper
+// must not blur "does not support thinking" into "capability unknown", or the layer above would generate
+// parameters the provider rejects.
 type capabilityUsageTrackedModel struct {
 	*usageTrackedModel
 	capabilities llm.CapabilityProvider
@@ -39,8 +41,8 @@ func (m *capabilityUsageTrackedModel) Capabilities() llm.Capabilities {
 	return m.capabilities.Capabilities()
 }
 
-// JSONSchemaOverride 透传底层模型的 config json_schema 三态声明；inner 未携带
-// 时返回 nil（"未配置"），不伪造能力。
+// JSONSchemaOverride passes through the wrapped model's three-state json_schema config declaration; it
+// returns nil ("not configured") when the inner model does not carry it, faking no capability.
 func (m *capabilityUsageTrackedModel) JSONSchemaOverride() *bool {
 	if o, ok := m.usageTrackedModel.inner.(interface{ JSONSchemaOverride() *bool }); ok {
 		return o.JSONSchemaOverride()
@@ -69,7 +71,7 @@ func (m *usageTrackedModel) Generate(ctx context.Context, msgs []agentcore.Messa
 }
 
 func (m *usageTrackedModel) GenerateStream(ctx context.Context, msgs []agentcore.Message, tools []agentcore.ToolSpec, opts ...agentcore.CallOption) (<-chan agentcore.StreamEvent, error) {
-	// Arbiter 只走 Generate;流式路径透传(若未来走流,usage 由消费端补记)。
+	// The Arbiter only uses Generate; the streaming path is passed through (if it ever streams, usage is recorded by the consumer).
 	return m.inner.GenerateStream(ctx, msgs, tools, opts...)
 }
 

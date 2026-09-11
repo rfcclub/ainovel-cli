@@ -8,9 +8,11 @@ import (
 	storepkg "github.com/voocel/ainovel-cli/internal/store"
 )
 
-// TestHostReopen 守护 /reopen 的用户级重开出口：完本是重决策，重开只能由用户显式
-// 发起——未完结拒绝、运行中拒绝；重开成功把 phase 回退 writing，附带的续写方向登记为
-// 待处理干预（PendingSteer），恢复时先经 Arbiter 裁定注入再续跑。
+// TestHostReopen guards /reopen's user-level reopening path: completion is a heavyweight decision and
+// reopening can only be initiated explicitly by the user — refused when not complete and refused while
+// running; a successful reopen drops phase back to writing, registers the attached continuation direction
+// as a pending intervention (PendingSteer), and on recovery the Arbiter adjudicates and injects it before
+// the engine resumes.
 func TestHostReopen(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	h := &Host{store: st, events: make(chan Event, 8)}
@@ -36,8 +38,9 @@ func TestHostReopen(t *testing.T) {
 	if len(p.PendingRewrites) != 0 || p.ReopenedFromComplete {
 		t.Fatalf("续写重开不得携带返工语义：%+v", p)
 	}
-	// 重开计数必须落盘：再完结的 progress digest 才会与上次不同——checkpoint 同 digest
-	// 幂等去重，字节相同的再完结无新 checkpoint，StopGuard 会把成功完本误判为空转终止。
+	// The reopen counter must be persisted so that a second completion's progress digest differs from the
+	// last one — a checkpoint with the same digest is deduplicated, so a byte-identical re-completion would
+	// add no checkpoint and the StopGuard would misjudge a successful finish as idling to a halt.
 	if p.ReopenCount != 1 {
 		t.Fatalf("重开计数应为 1，得 %d", p.ReopenCount)
 	}

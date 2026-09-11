@@ -67,7 +67,7 @@ func TestSaveLayeredOutlineRebuildsFlatProjection(t *testing.T) {
 }
 
 func TestCheckArcBoundaryNeedsNewVolume(t *testing.T) {
-	// 只有 1 卷 1 弧 1 章，且非 Final → 应触发 NeedsNewVolume
+	// Only 1 volume, 1 arc, 1 chapter and not Final → NeedsNewVolume should fire
 	s := setupLayered(t, []domain.VolumeOutline{{
 		Index: 1, Title: "第一卷", Theme: "起步",
 		Arcs: []domain.ArcOutline{{
@@ -95,8 +95,8 @@ func TestCheckArcBoundaryNeedsNewVolume(t *testing.T) {
 }
 
 func TestCheckArcBoundaryLastVolumeRequiresDecision(t *testing.T) {
-	// 单卷最后一章 → 触发 NeedsNewVolume，让 Router 让架构师二选一：
-	// append_volume 续写 / complete_book 收尾。
+	// The last chapter of a single volume → NeedsNewVolume fires, letting the Router put the choice to the
+	// architect: append_volume to continue or complete_book to wrap up.
 	s := setupLayered(t, []domain.VolumeOutline{{
 		Index: 1, Title: "唯一卷", Theme: "主题",
 		Arcs: []domain.ArcOutline{{
@@ -118,7 +118,7 @@ func TestCheckArcBoundaryLastVolumeRequiresDecision(t *testing.T) {
 }
 
 func TestCheckArcBoundaryNextArcInSameVolume(t *testing.T) {
-	// 2 弧：第 1 弧结束应指向第 2 弧，不触发 NeedsNewVolume
+	// Two arcs: the end of arc 1 should point at arc 2 and not fire NeedsNewVolume
 	s := setupLayered(t, []domain.VolumeOutline{{
 		Index: 1, Title: "第一卷", Theme: "起步",
 		Arcs: []domain.ArcOutline{
@@ -216,7 +216,7 @@ func TestExpandArcCalibratesUnwrittenPlan(t *testing.T) {
 	if err := s.ExpandArc(1, 2, expansion); err != nil {
 		t.Fatalf("same expansion must be idempotent: %v", err)
 	}
-	// 模拟上次只写完 layered JSON、派生 flat outline 与 Progress 尚未补齐。
+	// Simulate the previous run finishing only the layered JSON, with the derived flat outline and Progress not yet caught up.
 	if err := os.Remove(filepath.Join(s.Dir(), "outline.json")); err != nil {
 		t.Fatalf("remove flat outline: %v", err)
 	}
@@ -258,12 +258,12 @@ func TestAppendVolumeValidation(t *testing.T) {
 		}},
 	}
 
-	// 正常追加应成功
+	// A normal append should succeed
 	if err := s.AppendVolume(validVol); err != nil {
 		t.Fatalf("AppendVolume valid: %v", err)
 	}
 
-	// Index 不递增 → 失败
+	// A non-increasing Index → failure
 	if err := s.AppendVolume(domain.VolumeOutline{
 		Index: 1, Title: "重复", Theme: "x",
 		Arcs: []domain.ArcOutline{{Index: 1, Title: "弧", Goal: "g", Chapters: []domain.OutlineEntry{{Title: "ch", CoreEvent: "e", Hook: "h"}}}},
@@ -271,12 +271,12 @@ func TestAppendVolumeValidation(t *testing.T) {
 		t.Fatal("expected error for non-increasing index")
 	}
 
-	// 无弧 → 失败
+	// No arcs → failure
 	if err := s.AppendVolume(domain.VolumeOutline{Index: 3, Title: "空", Theme: "x"}); err == nil {
 		t.Fatal("expected error for volume with no arcs")
 	}
 
-	// 首弧无章节 → 失败
+	// The first arc has no chapters → failure
 	if err := s.AppendVolume(domain.VolumeOutline{
 		Index: 3, Title: "骨架", Theme: "x",
 		Arcs: []domain.ArcOutline{{Index: 1, Title: "弧", Goal: "g", EstimatedChapters: 10}},
@@ -285,9 +285,10 @@ func TestAppendVolumeValidation(t *testing.T) {
 	}
 }
 
-// 注：原先用 Final 卷拒绝 append 的语义已下沉到 save_foundation 层（Phase=Complete 拒绝），
-// 见 save_foundation_test.go::TestSaveFoundationAppendVolumeRejectsAfterComplete。
-// store 层只保留结构性校验（Index 递增 / 首弧含章节等）。
+// Note: the old semantic of rejecting an append on a Final volume has moved down to the
+// save_foundation layer (Phase=Complete refuses), see
+// save_foundation_test.go::TestSaveFoundationAppendVolumeRejectsAfterComplete. The store layer keeps
+// only structural validation (increasing Index, first arc has chapters and so on).
 
 func TestSaveAndLoadCompass(t *testing.T) {
 	s := NewStore(t.TempDir())
@@ -295,12 +296,12 @@ func TestSaveAndLoadCompass(t *testing.T) {
 		t.Fatalf("Init: %v", err)
 	}
 
-	// 空 direction 应失败
+	// An empty direction should fail
 	if err := s.Outline.SaveCompass(domain.StoryCompass{EstimatedScale: "3 卷"}); err == nil {
 		t.Fatal("expected error for empty ending_direction")
 	}
 
-	// 正常保存
+	// A normal save
 	compass := domain.StoryCompass{
 		EndingDirection: "主角面对最终抉择",
 		OpenThreads:     []string{"线索A", "关系B"},
@@ -326,7 +327,7 @@ func TestSaveAndLoadCompass(t *testing.T) {
 	}
 }
 
-// TestOutlineFeedbackPool 反馈池闭环:commit 落盘 → 跨重启可读 → 结构操作消费清空。
+// TestOutlineFeedbackPool closes the feedback loop: commit persists → readable across a restart → cleared once a structural operation consumes it.
 func TestOutlineFeedbackPool(t *testing.T) {
 	dir := t.TempDir()
 	s := NewStore(dir)
@@ -340,7 +341,7 @@ func TestOutlineFeedbackPool(t *testing.T) {
 		t.Fatalf("append2: %v", err)
 	}
 
-	// 跨重启(新 Store 实例)可读——不是内存态
+	// Readable across a restart (a new Store instance) — not in-memory state
 	s2 := NewStore(dir)
 	fbs, err := s2.Outline.LoadPendingOutlineFeedback()
 	if err != nil {
@@ -361,7 +362,7 @@ func TestOutlineFeedbackPool(t *testing.T) {
 	if left, err := s2.Outline.LoadPendingOutlineFeedback(); err != nil || len(left) != 0 {
 		t.Fatalf("消费后应为空: %+v", left)
 	}
-	// 幂等清空
+	// Idempotent clearing
 	if err := s2.Outline.ClearOutlineFeedback(); err != nil {
 		t.Fatalf("clear idempotent: %v", err)
 	}

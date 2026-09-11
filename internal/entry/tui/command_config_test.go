@@ -31,7 +31,7 @@ func hubFieldIndex(fields []hubField, id string) int {
 	return -1
 }
 
-// 选中已有 Provider 应进入详情 hub（先看信息，再逐一调整），而不是直接跳进“改协议”。
+// Selecting an existing Provider should enter the detail hub (see the information first, then adjust field by field) rather than jumping straight into "edit the protocol".
 func TestSelectingProviderOpensHub(t *testing.T) {
 	st := &modelConfigState{editModelIdx: -1}
 	st.applyProviderChoice(configProviderChoice{existing: &host.ProviderSnapshot{
@@ -42,7 +42,7 @@ func TestSelectingProviderOpensHub(t *testing.T) {
 		t.Fatalf("选中已有 Provider 应进入 hub，得到 step=%d", st.step)
 	}
 	ids := hubFieldIDs(st.hubFields())
-	// 内置 provider（type 空）不铺 协议/Endpoint 噪音，但保留 key/models/save。
+	// A built-in provider (empty type) does not spread protocol/Endpoint noise but keeps key/models/save.
 	if slices.Contains(ids, "protocol") || slices.Contains(ids, "api") {
 		t.Fatalf("内置 provider hub 不应出现协议/Endpoint，得到 %v", ids)
 	}
@@ -53,7 +53,7 @@ func TestSelectingProviderOpensHub(t *testing.T) {
 	}
 }
 
-// 自定义（显式 openai 协议）Provider 的 hub 才展示协议与 Endpoint。
+// Only a custom Provider's hub (with an explicit openai protocol) shows the protocol and Endpoint.
 func TestCustomProviderHubShowsProtocolAndEndpoint(t *testing.T) {
 	st := &modelConfigState{editModelIdx: -1}
 	st.applyProviderChoice(configProviderChoice{existing: &host.ProviderSnapshot{
@@ -66,7 +66,7 @@ func TestCustomProviderHubShowsProtocolAndEndpoint(t *testing.T) {
 	}
 }
 
-// Esc 逐级返回：hub 行内编辑 → hub → Provider 列表 → 关闭。
+// Esc steps back one level at a time: hub inline edit → hub → Provider list → close.
 func TestEscapeBackHierarchy(t *testing.T) {
 	st := &modelConfigState{step: configStepHub, provider: "proxy"}
 	st.beginInlineEdit("baseurl")
@@ -452,7 +452,7 @@ func TestModelSwitchLabelIncludesContextWindow(t *testing.T) {
 	}
 }
 
-// 与 /model 一致：/config 渲染成内容高度的带框浮层（不再撑成 3/4 屏的居中蒙层）。
+// Consistent with /model: /config renders as a framed overlay sized to its content (no longer stretched into a centred 3/4-screen scrim).
 func TestModelConfigModalIsCompactOverlay(t *testing.T) {
 	state := &modelConfigState{step: configStepProvider, providerChoices: []configProviderChoice{
 		{label: "编辑 openrouter", existing: &host.ProviderSnapshot{Name: "openrouter"}},
@@ -460,7 +460,7 @@ func TestModelConfigModalIsCompactOverlay(t *testing.T) {
 	}}
 	lines := strings.Split(renderModelConfigModal(120, state), "\n")
 
-	// 1 标题行 + 2 选项 + 上下边框 = 5 行；高度随内容走，不会因为屏高而膨胀。
+	// 1 title row + 2 options + top and bottom borders = 5 rows; the height follows the content and does not inflate with screen height.
 	if len(lines) != 5 {
 		t.Fatalf("紧凑浮层应为 5 行（内容高度），得到 %d 行:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
@@ -472,7 +472,7 @@ func TestModelConfigModalIsCompactOverlay(t *testing.T) {
 	}
 }
 
-// 一级菜单只列“编辑已有 + 新增入口”，不铺开整份内置 Provider 目录；目录只在二级菜单出现。
+// The top-level menu lists only "edit existing + add entry" and does not unfold the whole built-in Provider directory; the directory appears only in the second-level menu.
 func TestProviderMenuIsTwoLevel(t *testing.T) {
 	state := &modelConfigState{snapshot: host.ModelConfigurationSnapshot{
 		Providers:       []host.ProviderSnapshot{{Name: "openrouter"}, {Name: "anthropic"}},
@@ -480,7 +480,7 @@ func TestProviderMenuIsTwoLevel(t *testing.T) {
 	}}
 	state.buildProviderMenus()
 
-	// 一级 = 2 个编辑 + 1 个新增入口；末项是“新增”，且没有别的 add/preset 混入。
+	// Top level = 2 edits + 1 add entry; the last item is "add" with no other add/preset mixed in.
 	if len(state.providerChoices) != 3 {
 		t.Fatalf("一级菜单应为 2 编辑 + 1 新增，得到 %d 项", len(state.providerChoices))
 	}
@@ -493,7 +493,7 @@ func TestProviderMenuIsTwoLevel(t *testing.T) {
 		}
 	}
 
-	// 二级 = 可新增目录：非空，且已配置的内置项（openrouter/anthropic）不再重复出现。
+	// Second level = the addable directory: non-empty, with already-configured built-ins (openrouter/anthropic) no longer repeating.
 	if len(state.presetChoices) == 0 {
 		t.Fatal("二级菜单应列出可新增的 Provider 目录")
 	}

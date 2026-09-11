@@ -10,7 +10,7 @@ func TestScriptMixingSilentOnCleanVietnamese(t *testing.T) {
 	}
 }
 
-// Chữ Hán lọt vào văn Việt — đúng lỗi đã thấy trong log: "dùng根系之力 ổn định".
+// Han characters leaking into Vietnamese prose — exactly the error seen in the log: "dùng根系之力 ổn định".
 func TestScriptMixingCatchesHanLeakInVietnamese(t *testing.T) {
 	text := "Lữ Cầm buộc phải dùng根系之力 để ổn định làng quê trước cơn lũ đang tràn tới."
 	vs := appendScriptMixing(nil, text)

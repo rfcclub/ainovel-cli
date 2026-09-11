@@ -25,7 +25,7 @@ func renderPaddedModalFrame(boxW, boxH int, title, hint string, bodyLines []stri
 
 	innerW := max(0, boxW-2)
 	contentW := paddedModalContentWidth(boxW)
-	// hint 落在下边框内，过长会把边框顶出框宽——截断到内宽，保证上下边框对齐。
+	// The hint sits inside the bottom border and, when too long, pushes the border past the frame width — truncate to the inner width so the top and bottom borders stay aligned.
 	if lipgloss.Width(hint) > innerW {
 		hint = truncateWidth(hint, innerW)
 	}

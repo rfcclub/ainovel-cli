@@ -35,7 +35,7 @@ func TestConfigResolveReasoningEffort(t *testing.T) {
 		}
 	}
 
-	// 顶层默认也为空时，未覆盖角色返回 ""（不覆盖）。
+	// When the top-level default is empty too, an unoverridden role returns "" (no override).
 	empty := Config{Roles: map[string]RoleConfig{"writer": {ReasoningEffort: "xhigh"}}}
 	if got := empty.ResolveReasoningEffort("editor"); got != "" {
 		t.Errorf("空默认下 editor 应返回 \"\"，得 %q", got)

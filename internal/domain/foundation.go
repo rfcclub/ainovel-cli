@@ -1,6 +1,7 @@
 package domain
 
-// FoundationAuditIssue 是 Architect 对已落盘基础设定给出的跨文件一致性问题。
+// FoundationAuditIssue is a cross-file consistency problem the Architect reports for the
+// persisted foundation settings.
 type FoundationAuditIssue struct {
 	Artifact    string `json:"artifact"`
 	Description string `json:"description"`
@@ -8,7 +9,7 @@ type FoundationAuditIssue struct {
 	Suggestion  string `json:"suggestion,omitempty"`
 }
 
-// FoundationAudit 记录一次针对确定版本基础设定的模型审查。
+// FoundationAudit records one model audit against a specific version of the foundation settings.
 type FoundationAudit struct {
 	Fingerprint string                 `json:"fingerprint"`
 	Ready       bool                   `json:"ready"`

@@ -9,7 +9,7 @@ import (
 	"github.com/voocel/ainovel-cli/internal/store"
 )
 
-// completedBook 构造一本已完结的 N 章小说（phase=complete，CompletedChapters=1..n）。
+// completedBook builds a completed N-chapter novel (phase=complete, CompletedChapters=1..n).
 func completedBook(t *testing.T, n int) *store.Store {
 	t.Helper()
 	s := store.NewStore(t.TempDir())
@@ -64,7 +64,7 @@ func TestReopenBookReopensCompletedBook(t *testing.T) {
 }
 
 func TestReopenBookRejectsNonCompleteBook(t *testing.T) {
-	// 写作中（未完结）的书不能 reopen
+	// A book still being written (not completed) cannot be reopened
 	s := store.NewStore(t.TempDir())
 	if err := s.Init(); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -86,12 +86,12 @@ func TestReopenBookRejectsUnwrittenChapters(t *testing.T) {
 	s := completedBook(t, 3)
 	tool := NewReopenBookTool(s)
 
-	// 第 5 章不存在 → 拒绝（属续写/越界，应走篇幅调整）
+	// Chapter 5 does not exist → refused (that is continuation/out-of-range and belongs to length adjustment)
 	args, _ := json.Marshal(map[string]any{"chapters": []int{2, 5}})
 	if _, err := tool.Execute(context.Background(), args); err == nil {
 		t.Fatal("expected reopen to be rejected for unwritten chapter")
 	}
-	// 空 chapters → 拒绝
+	// Empty chapters → refused
 	args, _ = json.Marshal(map[string]any{"chapters": []int{}})
 	if _, err := tool.Execute(context.Background(), args); err == nil {
 		t.Fatal("expected reopen to be rejected for empty chapters")

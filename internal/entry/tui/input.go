@@ -10,8 +10,8 @@ import (
 
 const resetForeground = "\x1b[39m"
 
-// highlightCommandToken 只给已确认的命令 token 着色，保留 textarea 原有的
-// 光标、反色和换行 ANSI 序列。参数从第一个空白字符开始，始终使用正文颜色。
+// highlightCommandToken colours only the confirmed command token, preserving the textarea's own cursor, reverse video and
+// newline ANSI sequences. Arguments start at the first whitespace character and always use the prose colour.
 func highlightCommandToken(inputView, inputValue, commandToken string) string {
 	if commandToken == "" {
 		return inputView
@@ -28,9 +28,9 @@ func highlightCommandToken(inputView, inputValue, commandToken string) string {
 	return highlightANSIByteRange(inputView, start, start+len(commandToken))
 }
 
-// highlightANSIByteRange 在剥离 ANSI 后的字节区间上覆盖前景色。区间内若遇到
-// textarea 自己的 SGR（例如反色光标），会在其后重新下发强调色；区间结束只重置
-// 前景色，不清掉光标的其他终端属性。
+// highlightANSIByteRange overlays a foreground colour on a byte range after ANSI is stripped. If the textarea's own SGR
+// appears inside the range (a reverse-video cursor, say), the emphasis colour is re-issued after it; the range's end resets
+// only the foreground, leaving the cursor's other terminal attributes intact.
 func highlightANSIByteRange(value string, start, end int) string {
 	if start < 0 || end <= start {
 		return value
@@ -77,22 +77,22 @@ func highlightANSIByteRange(value string, start, end int) string {
 	return out.String()
 }
 
-// renderInputBox 渲染底部输入区：输入框、快捷键提示行、最底部用量状态栏。
-// 输入框单独负责输入与提示，不承载启动模式栏。
+// renderInputBox renders the bottom input area: the input box, the shortcut hint row and the usage status bar at the very bottom.
+// The input box handles input and hints alone and does not carry the startup mode bar.
 func renderInputBox(inputView, hints string, snap host.UISnapshot, outputDir string, width int) string {
 	innerW := width - 4 // border + padding
 	if innerW < 12 {
 		innerW = 12
 	}
 
-	// 输入行：提示符 + 输入框
+	// Input row: prompt symbol + input box
 	prompt := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Render("❯ ")
 	inputLine := prompt + inputView
 
-	// 提示行：快捷键独占整行——模型/花费等运行信息移入底部状态栏，不再挤在右侧互相截断。
+	// Hint row: the shortcuts take the whole line — run information such as model/cost moved to the bottom status bar instead of crowding the right and truncating each other.
 	line2 := fitInlineLine(hints, innerW)
 
-	// 输入区（单一盒子，避免视觉上出现双输入框）
+	// Input area (a single box, avoiding the look of two input boxes)
 	inputStyle := lipgloss.NewStyle().
 		Width(width).
 		Border(baseBorder, true, false, true, false).
@@ -100,13 +100,13 @@ func renderInputBox(inputView, hints string, snap host.UISnapshot, outputDir str
 		Padding(0, 1)
 	inputBlock := inputStyle.Render(inputLine)
 
-	// 提示行（无边框，紧贴下横线下方）
+	// Hint row (borderless, hugging just below the bottom rule)
 	hintStyle := lipgloss.NewStyle().
 		Width(width).
 		Padding(0, 2)
 	hintBlock := hintStyle.Render(line2)
 
-	// 状态栏占用输入区原有的末尾空行：整块高度不变，layoutHeights 无需调整。
+	// The status bar takes over the trailing blank line the input area already had: the block keeps its height and layoutHeights needs no adjustment.
 	statusBlock := hintStyle.Render(renderStatusBar(snap, outputDir, innerW))
 
 	return inputBlock + "\n" + hintBlock + "\n" + statusBlock

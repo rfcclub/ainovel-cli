@@ -7,7 +7,7 @@ import (
 	"github.com/voocel/ainovel-cli/internal/host"
 )
 
-// CoCreateSession 承载共创模式的非 UI 状态。
+// CoCreateSession carries cocreation mode's non-UI state.
 type CoCreateSession struct {
 	history        []host.CoCreateMessage
 	draftPrompt    string
@@ -38,10 +38,10 @@ func (s *CoCreateSession) ApplyReply(reply host.CoCreateReply) {
 	}
 	s.streamReply = ""
 	s.streamThinking = ""
-	// history 里 assistant 存完整三段 Raw（含 [DRAFT]），下一轮模型才能看到
-	// 自己上一轮写的草稿、在它基础上累积更新；只存 Message 会让 [DRAFT] 完全
-	// 不进上下文，模型每轮只能凭对话重新归纳，早期细节容易丢。降级路径下
-	// Raw == Message，等价。
+	// In history the assistant stores the complete three-part Raw (including [DRAFT]) so the next round's model can see the
+	// draft it wrote last round and accumulate updates on it; storing Message alone would keep [DRAFT] entirely out of
+	// context, leaving the model to re-derive from the conversation every round and easily losing early detail. On the
+	// degraded path Raw == Message, which is equivalent.
 	text := strings.TrimSpace(reply.Raw)
 	if text == "" {
 		text = strings.TrimSpace(reply.Message)
@@ -49,13 +49,14 @@ func (s *CoCreateSession) ApplyReply(reply host.CoCreateReply) {
 	if text != "" {
 		s.history = append(s.history, host.CoCreateMessage{Role: "assistant", Content: text})
 	}
-	// 仅当 Prompt 非空才覆盖 draft：parse 降级路径会返回 Prompt=""，此时
-	// 必须保留上一轮 draft，否则用户已积累的"当前创作指令"会被截断的回复清空。
+	// The draft is overwritten only when Prompt is non-empty: the parse degradation path returns Prompt="", and the previous
+	// round's draft must be kept then, or the "current creation brief" the user has accumulated would be wiped by a truncated
+	// reply.
 	if prompt := strings.TrimSpace(reply.Prompt); prompt != "" {
 		s.draftPrompt = prompt
 	}
 	s.ready = reply.Ready
-	// suggestions 直接覆盖（包括覆盖为空）：每轮的引导只对当下有意义。
+	// suggestions is overwritten directly (including with an empty value): each round's guidance only matters for the present.
 	s.suggestions = append(s.suggestions[:0], reply.Suggestions...)
 }
 
@@ -67,14 +68,15 @@ func (s *CoCreateSession) AppendUser(text string) {
 	if text == "" {
 		return
 	}
-	// 用户已经决定下一句要说什么，suggestions 立即作废，避免 AI 还没回复时
-	// 旧建议挂在输入框上误导。
+	// The user has decided what to say next, so suggestions are voided at once — otherwise old suggestions would hang on the
+	// input box and mislead while the AI has not yet replied.
 	s.suggestions = nil
 	s.history = append(s.history, host.CoCreateMessage{Role: "user", Content: text})
 }
 
-// ApplyDelta 接收流式累积；kind="thinking" 写入推理流，"reply" 写入回复预览。
-// 两路分别累积，UI 可分块染色显示，让用户在 thinking 阶段也看到 LLM 在工作。
+// ApplyDelta receives streaming accumulation; kind="thinking" writes the reasoning stream and "reply" the reply preview.
+// The two accumulate separately so the UI can colour the blocks distinctly, letting the user see the LLM working during the
+// thinking stage.
 func (s *CoCreateSession) ApplyDelta(kind, text string) {
 	if s == nil {
 		return

@@ -2,8 +2,9 @@ package diag
 
 import "testing"
 
-// TestRuntimeFindings_Classify 证明重复签名按形态分类、阈值升降级正确，
-// 且运行时 Finding 全部 AutoNone（观察者纪律：只诊断不产 Action）。
+// TestRuntimeFindings_Classify proves repeated signatures classify by shape, thresholds escalate and
+// de-escalate correctly, and every runtime Finding is AutoNone (observer discipline: diagnose without
+// producing an Action).
 func TestRuntimeFindings_Classify(t *testing.T) {
 	rc := RuntimeCapture{
 		Repeats: []RepeatStat{
@@ -37,7 +38,7 @@ func TestRuntimeFindings_Classify(t *testing.T) {
 			t.Errorf("%s: got %q want %q", rule, sev[rule], w)
 		}
 	}
-	// 正常高频工具 / 日志累计 error 不应产 Finding（避免长跑误报）。
+	// A normally high-frequency tool or a cumulative log error should not produce a Finding (avoiding false alarms on long runs).
 	if _, ok := sev["RepeatedToolCall"]; ok {
 		t.Error("普通工具重复不应产 Finding")
 	}
@@ -46,7 +47,7 @@ func TestRuntimeFindings_Classify(t *testing.T) {
 	}
 }
 
-// TestRuntimeFindings_Quiet 证明无异常信号时不产任何运行时 Finding（零误报）。
+// TestRuntimeFindings_Quiet proves no anomalous signal yields no runtime Finding at all (zero false positives).
 func TestRuntimeFindings_Quiet(t *testing.T) {
 	rc := RuntimeCapture{
 		LogKinds:  map[string]int{"stream_idle": 1}, // 低于阈值

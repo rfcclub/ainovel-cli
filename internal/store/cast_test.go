@@ -69,7 +69,7 @@ func TestCastMergeAppearances_IsIdempotent(t *testing.T) {
 	if err := s.Cast.MergeAppearances(5, []string{"老周"}, nil, nil); err != nil {
 		t.Fatalf("first merge: %v", err)
 	}
-	// 同一章 commit 重复触发（崩溃恢复或重写场景）
+	// The same chapter commits twice (crash recovery or a rewrite)
 	if err := s.Cast.MergeAppearances(5, []string{"老周"}, nil, nil); err != nil {
 		t.Fatalf("second merge: %v", err)
 	}
@@ -98,11 +98,11 @@ func TestCastMergeAppearances_FiltersCoreCharacters(t *testing.T) {
 
 func TestCastMergeAppearances_BackfillsBriefRole(t *testing.T) {
 	s := newCastTestStore(t)
-	// 第 5 章引入老周但 Writer 忘填 brief_role
+	// Chapter 5 introduces Old Zhou but the Writer forgot to fill brief_role
 	if err := s.Cast.MergeAppearances(5, []string{"老周"}, nil, nil); err != nil {
 		t.Fatalf("first merge: %v", err)
 	}
-	// 第 8 章再次出现，Writer 这次补了 brief_role
+	// He appears again in chapter 8 and this time the Writer fills brief_role
 	intros := []domain.CastIntro{{Name: "老周", BriefRole: "客栈老板"}}
 	if err := s.Cast.MergeAppearances(8, []string{"老周"}, intros, nil); err != nil {
 		t.Fatalf("second merge: %v", err)
@@ -116,7 +116,7 @@ func TestCastMergeAppearances_BackfillsBriefRole(t *testing.T) {
 
 func TestCastMergeAppearances_NoOverwriteBriefRole(t *testing.T) {
 	s := newCastTestStore(t)
-	// 第 5 章定下 BriefRole=客栈老板
+	// Chapter 5 settles BriefRole = innkeeper
 	if err := s.Cast.MergeAppearances(5,
 		[]string{"老周"},
 		[]domain.CastIntro{{Name: "老周", BriefRole: "客栈老板"}},
@@ -124,7 +124,7 @@ func TestCastMergeAppearances_NoOverwriteBriefRole(t *testing.T) {
 	); err != nil {
 		t.Fatalf("first merge: %v", err)
 	}
-	// 第 8 章 Writer 错误地传了不同的 BriefRole（不应覆盖）
+	// In chapter 8 the Writer wrongly passes a different BriefRole (it must not overwrite)
 	if err := s.Cast.MergeAppearances(8,
 		[]string{"老周"},
 		[]domain.CastIntro{{Name: "老周", BriefRole: "赌坊打手"}},

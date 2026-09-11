@@ -22,9 +22,10 @@ func TestBootstrapExistingBookFailureStaysInWorkbench(t *testing.T) {
 	}
 }
 
-// TestBootstrapCompletedBookLandsOnDoneWorkbench 守护完结书的启动落点：resumeLabel 对
-// complete 返回空标签，旧行为落欢迎页——欢迎页对已有书只字不提，用户会以为书丢了，
-// 且 /reopen、/export、返工输入的自然位置都在完成态工作台。
+// TestBootstrapCompletedBookLandsOnDoneWorkbench guards where a completed book lands at startup:
+// resumeLabel returns an empty label for complete and the old behaviour landed on the welcome page — the
+// welcome page says nothing about an existing book and the user would think it was lost, whereas /reopen,
+// /export and rework input all naturally belong in the completion-state workbench.
 func TestBootstrapCompletedBookLandsOnDoneWorkbench(t *testing.T) {
 	m := Model{mode: modeNew, textarea: textarea.New()}
 	next, cmd, handled := m.handleRuntimeMsg(bootstrapMsg{completed: true})
@@ -39,7 +40,7 @@ func TestBootstrapCompletedBookLandsOnDoneWorkbench(t *testing.T) {
 		t.Fatalf("应给出完成态引导（含 /reopen），得 %q", got.textarea.Placeholder)
 	}
 
-	// 已在工作台（如会话内完结后又收到 bootstrap）不得被重复切态。
+	// Already in the workbench (a bootstrap arriving after an in-session completion, say) must not be switched again.
 	m = Model{mode: modeRunning, textarea: textarea.New()}
 	next, _, _ = m.handleRuntimeMsg(bootstrapMsg{completed: true})
 	if next.(Model).mode != modeRunning {

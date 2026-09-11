@@ -43,8 +43,9 @@ func (f *fakeModelRuntime) SetRoleThinking(role, level string) error {
 	return nil
 }
 
-// 存储的强度意图高于当前模型能力、面板无法呈现时，用户不动强度字段直接应用，
-// 不应把意图误抹成初始默认值。
+// When the stored effort intent exceeds the current model's capability and the panel cannot present it,
+// a user applying without touching the effort field must not have the intent wrongly wiped to the initial
+// default.
 func TestModelSwitchKeepsUnrepresentableThinkingIntent(t *testing.T) {
 	rt := &fakeModelRuntime{
 		providers:   []string{"proxy"},
@@ -68,7 +69,7 @@ func TestModelSwitchKeepsUnrepresentableThinkingIntent(t *testing.T) {
 	}
 }
 
-// 用户在面板里显式改动强度，则应回写为新值。
+// If the user explicitly changes the effort in the panel, the new value should be written back.
 func TestModelSwitchAppliesExplicitThinkingChange(t *testing.T) {
 	rt := &fakeModelRuntime{
 		providers:   []string{"proxy"},

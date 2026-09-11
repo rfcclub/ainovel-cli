@@ -6,8 +6,10 @@ import (
 	"sync"
 )
 
-// Tracker 按章节维护全书风格统计。首次载入每章一次；新增或重写时只分析变化章节。
-// Snapshot 会缓存派生结果，同一书状态下 Writer/Editor 的重复读取不再重算。
+// Tracker maintains book-level style statistics per chapter. Each chapter is loaded once;
+// when one is added or rewritten only the changed chapters are analysed. Snapshot caches the
+// derived result, so repeated reads by the Writer/Editor at the same book state never
+// recompute.
 type Tracker struct {
 	mu sync.Mutex
 
@@ -46,7 +48,7 @@ func NewTracker() *Tracker {
 	}
 }
 
-// Upsert 新增或替换一章。正文未变化时不推进版本。
+// Upsert adds or replaces one chapter. The version does not advance when the prose is unchanged.
 func (t *Tracker) Upsert(chapter int, text string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -65,7 +67,7 @@ func (t *Tracker) Upsert(chapter int, text string) {
 	t.cacheReady = false
 }
 
-// Remove 删除一章；不存在时无操作。
+// Remove deletes one chapter; it is a no-op when absent.
 func (t *Tracker) Remove(chapter int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -81,7 +83,7 @@ func (t *Tracker) Remove(chapter int) {
 	t.cacheReady = false
 }
 
-// Snapshot 返回与 Compute 等价的当前统计快照。
+// Snapshot returns the current statistics snapshot, equivalent to Compute.
 func (t *Tracker) Snapshot(titles, stopwords []string) *Stats {
 	t.mu.Lock()
 	defer t.mu.Unlock()
