@@ -20,6 +20,10 @@ const (
 	FailureLength   FailureKind = "length"
 	FailureSafety   FailureKind = "safety"
 	FailureContract FailureKind = "contract"
+	// FailureSemantic is the contract-shaped output whose field values never passed business
+	// validation, exhausted the feedback rounds. Distinct from FailureContract so callers can
+	// tell "the model cannot satisfy the schema" from "the model will not satisfy the rules".
+	FailureSemantic FailureKind = "semantic"
 )
 
 // Failure keeps the failure category and the model's raw output, letting the caller decide the log,
@@ -76,6 +80,11 @@ type Request[T any] struct {
 
 const promptCorrection = "Kết quả bên trên không khớp JSON Schema. Hãy sửa theo thông báo lỗi và chỉ xuất một đối tượng JSON đầy đủ, không giải thích, không dùng hàng rào Markdown."
 const semanticCorrection = "JSON bên trên đúng cấu trúc nhưng giá trị trường không qua được kiểm tra nghiệp vụ. Hãy sửa theo thông báo lỗi và xuất lại đối tượng JSON đầy đủ."
+
+// maxCorrectionAttempts bounds the feedback loop. Without it a model that cannot satisfy the
+// contract — or one whose output is repeatedly cut at the same cap — is asked forever, which
+// on a real provider means an unbounded hang with no log line and no way out but a kill.
+const maxCorrectionAttempts = 3
 
 // Execute handles protocol selection, prompt preparation, request retries, stop-reason
 // classification, Schema/DTO decoding and business-feedback self-healing in one place. A
@@ -169,6 +178,18 @@ func Execute[T any](ctx context.Context, model llmretry.Generator, req Request[T
 
 		if native && layer != "semantic" {
 			return zero, &Failure{Kind: FailureContract, Contract: req.Contract.Name, Raw: raw, Err: fmt.Errorf("vi phạm contract native schema: %w", cause)}
+		}
+		if attempt >= maxCorrectionAttempts {
+			kind := FailureContract
+			if layer == "semantic" {
+				kind = FailureSemantic
+			}
+			return zero, &Failure{
+				Kind:     kind,
+				Contract: req.Contract.Name,
+				Raw:      raw,
+				Err:      fmt.Errorf("đầu ra vẫn không hợp lệ sau %d lần sửa (tầng %s): %w", attempt, layer, cause),
+			}
 		}
 		correction := Correction{Attempt: attempt, Layer: layer, Mode: resolution.Mode, Raw: raw, Err: cause}
 		if req.Hooks.Correction != nil {

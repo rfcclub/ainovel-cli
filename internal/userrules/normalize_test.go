@@ -217,18 +217,19 @@ func TestNormalize_LeavesThinkingUnspecifiedAndReservesTokens(t *testing.T) {
 	}
 }
 
-// Bad JSON throughout: there is no fixed attempt cap; it keeps feeding back and re-asking until the context is cancelled.
-func TestNormalize_FeedbackRetryContinuesUntilContextCanceled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	model := &scriptedModel{replies: []string{"坏"}, cancel: cancel, cancelAt: 4}
+// Bad JSON throughout: the feedback loop must stop after a bounded number of rounds. Making
+// context cancellation the only exit turned a provider that never returns valid JSON into an
+// unkillable hang — each round is a full model call, so normalize blocked the whole boundary.
+func TestNormalize_FeedbackRetryStopsAfterBoundedRounds(t *testing.T) {
+	model := &scriptedModel{replies: []string{"hỏng"}}
 	n := NewNormalizer(model)
 
-	_, err := n.Normalize(ctx, "startup_prompt", "每章1200字")
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("应由 context 结束自愈循环，得 %v", err)
+	_, err := n.Normalize(context.Background(), "startup_prompt", "mỗi chương 1200 chữ")
+	if err == nil {
+		t.Fatal("đầu ra không bao giờ hợp lệ phải thất bại, không được hỏi mãi")
 	}
-	if model.calls != 4 {
-		t.Fatalf("context 取消前应持续调用，实际 %d", model.calls)
+	if model.calls == 0 || model.calls > 10 {
+		t.Fatalf("phải dừng sau số lần hữu hạn, actual %d", model.calls)
 	}
 }
 

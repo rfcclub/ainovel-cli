@@ -192,7 +192,7 @@ func callStructured[T any](ctx context.Context, m callModel, contract llmcontrac
 	switch failure.Kind {
 	case llmcontract.FailureLength:
 		return out, &errTruncated{Raw: failure.Raw}
-	case llmcontract.FailureSafety, llmcontract.FailureContract, llmcontract.FailureProtocol:
+	case llmcontract.FailureSafety, llmcontract.FailureContract, llmcontract.FailureSemantic, llmcontract.FailureProtocol:
 		if failure.Raw != "" {
 			return out, &errSemantic{Raw: failure.Raw, Err: fmt.Errorf("imp: %w", failure)}
 		}

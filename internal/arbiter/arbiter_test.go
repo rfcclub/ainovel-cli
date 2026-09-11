@@ -141,14 +141,17 @@ func TestDecidePlanStart_ValidAndFeedbackRetry(t *testing.T) {
 	}
 }
 
-func TestDecide_InvalidOutputContinuesUntilContextCanceled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	m := &scriptedModel{outputs: []string{"完全不是 JSON"}, cancel: cancel, cancelAt: 4}
-	if _, err := DecidePlanStart(ctx, m, "sys", "需求", ""); !errors.Is(err, context.Canceled) {
-		t.Fatalf("应由 context 结束自愈循环，得 %v", err)
+// A model that never produces parseable JSON must fail after a bounded number of feedback
+// rounds. Relying on context cancellation alone turned a bad provider into an unkillable hang:
+// each round is a full model call, so the loop ran until someone noticed and killed the process.
+func TestDecide_InvalidOutputStopsAfterBoundedRetries(t *testing.T) {
+	m := &scriptedModel{outputs: []string{"完全不phải JSON"}}
+	if _, err := DecidePlanStart(context.Background(), m, "sys", "需求", ""); err == nil {
+		t.Fatal("đầu ra không bao giờ hợp lệ phải thất bại, không được hỏi mãi")
 	}
-	if got := atomic.LoadInt64(&m.idx); got != 4 {
-		t.Fatalf("context 取消前应持续调用，got %d", got)
+	got := atomic.LoadInt64(&m.idx)
+	if got == 0 || got > 10 {
+		t.Fatalf("phải dừng sau số lần hữu hạn, got %d", got)
 	}
 }
 

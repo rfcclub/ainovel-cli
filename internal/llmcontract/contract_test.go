@@ -341,3 +341,67 @@ func TestExecuteExposesModelErrorStopReason(t *testing.T) {
 		t.Fatalf("错误终止不应作为 JSON 错误重问，calls=%d", model.calls)
 	}
 }
+
+// stickySemanticModel always returns contract-shaped JSON whose field values fail business
+// validation, and never improves on the feedback. It models a provider that cannot be taught
+// the rule: before maxCorrectionAttempts existed, Execute asked it forever — a real hang with
+// no log line and no exit but a kill.
+type stickySemanticModel struct{ calls int }
+
+func (m *stickySemanticModel) Generate(_ context.Context, _ []agentcore.Message, _ []agentcore.ToolSpec, _ ...agentcore.CallOption) (*agentcore.LLMResponse, error) {
+	m.calls++
+	return &agentcore.LLMResponse{Message: agentcore.Message{
+		Role:       agentcore.RoleAssistant,
+		Content:    []agentcore.ContentBlock{agentcore.TextBlock(`{"value":"sai"}`)},
+		StopReason: agentcore.StopReasonStop,
+	}}, nil
+}
+
+func TestExecute_BoundsSemanticCorrectionLoop(t *testing.T) {
+	m := &stickySemanticModel{}
+	_, err := Execute(context.Background(), m, Request[reproOut]{
+		Contract: Contract{
+			Name: "bounded",
+			Schema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"value": map[string]any{"type": "string"}},
+				"required":   []string{"value"},
+			},
+		},
+		SystemPrompt: "test",
+		Payload:      "test",
+		Agent:        "test",
+		Validate: func(o *reproOut) error {
+			if o.Value != "dung" {
+				return errors.New("value must be 'dung'")
+			}
+			return nil
+		},
+	})
+	if err == nil {
+		t.Fatal("a model that never satisfies validation must fail, not be asked forever")
+	}
+	if m.calls != maxCorrectionAttempts {
+		t.Fatalf("expected exactly %d calls, got %d", maxCorrectionAttempts, m.calls)
+	}
+	// The bound must be small enough that a real provider cannot turn it into a hang: every
+	// round is a full model call, so the cap is the difference between a failed step and an
+	// unkillable one.
+	if maxCorrectionAttempts > 10 {
+		t.Fatalf("maxCorrectionAttempts=%d is too large to prevent a hang", maxCorrectionAttempts)
+	}
+	var failure *Failure
+	if !errors.As(err, &failure) {
+		t.Fatalf("expected *Failure, got %T", err)
+	}
+	if failure.Kind != FailureSemantic {
+		t.Fatalf("expected FailureSemantic, got %s", failure.Kind)
+	}
+	if failure.Raw == "" {
+		t.Fatal("the raw output must be preserved for the failure artefact")
+	}
+}
+
+type reproOut struct {
+	Value string `json:"value"`
+}
