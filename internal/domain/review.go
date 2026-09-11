@@ -1,6 +1,6 @@
 package domain
 
-// TimelineEvent 时间线事件。
+// TimelineEvent is a timeline event.
 type TimelineEvent struct {
 	Chapter    int      `json:"chapter"`
 	Time       string   `json:"time"`
@@ -8,7 +8,7 @@ type TimelineEvent struct {
 	Characters []string `json:"characters,omitempty"`
 }
 
-// ForeshadowEntry 伏笔条目。
+// ForeshadowEntry is a foreshadow ledger entry.
 type ForeshadowEntry struct {
 	ID          string `json:"id"`
 	Description string `json:"description"`
@@ -17,16 +17,19 @@ type ForeshadowEntry struct {
 	ResolvedAt  int    `json:"resolved_at,omitempty"`
 }
 
-// ForeshadowUpdate 伏笔增量操作。
+// ForeshadowUpdate is an incremental foreshadow operation.
 type ForeshadowUpdate struct {
 	ID          string `json:"id"`
 	Action      string `json:"action"` // plant / advance / resolve
 	Description string `json:"description,omitempty"`
 }
 
-// RestoreOwnPlants 把旧记录里本章种下、而新记录未再声明的伏笔 plant 补回队首。
-// 一章埋过哪些伏笔是它自身的历史事实，重写正文不改变这一点；丢掉它，章节记录
-// 全量重放时本章及后续章节的 advance/resolve 会找不到前置 plant，整条链报错。
+// RestoreOwnPlants puts back at the head of the queue the foreshadow plants this chapter
+// declared in an older record but no longer declares in the new one.
+// Which foreshadows a chapter planted is a historical fact about that chapter and rewriting
+// its prose does not change it; dropping it means that when chapter records are replayed in
+// full, the advance/resolve calls in this and later chapters find no preceding plant and the
+// whole chain errors out.
 func RestoreOwnPlants(prev, next []ForeshadowUpdate) []ForeshadowUpdate {
 	declared := make(map[string]struct{}, len(next))
 	for _, u := range next {
@@ -48,11 +51,11 @@ func RestoreOwnPlants(prev, next []ForeshadowUpdate) []ForeshadowUpdate {
 	if len(restored) == 0 {
 		return next
 	}
-	// plant 必须排在同章 advance/resolve 之前，重放才能先建起条目。
+	// plants must precede the advance/resolve calls of the same chapter so replay creates the entry first.
 	return append(restored, next...)
 }
 
-// RelationshipEntry 人物关系条目。
+// RelationshipEntry is a character-relationship entry.
 type RelationshipEntry struct {
 	CharacterA string `json:"character_a"`
 	CharacterB string `json:"character_b"`
@@ -60,40 +63,40 @@ type RelationshipEntry struct {
 	Chapter    int    `json:"chapter"`
 }
 
-// ConsistencyIssue 一致性问题。
+// ConsistencyIssue is a consistency problem.
 type ConsistencyIssue struct {
-	Type           string `json:"type"`     // 模型依据 rubric 给出的具体问题维度
+	Type           string `json:"type"`     // The specific issue dimension the model reports from the rubric
 	Severity       string `json:"severity"` // critical / error / warning
 	Description    string `json:"description"`
-	Evidence       string `json:"evidence,omitempty"` // 证据：原文片段、具体情节或状态数据
+	Evidence       string `json:"evidence,omitempty"` // Evidence: verbatim excerpt, concrete plot point or state data
 	Suggestion     string `json:"suggestion,omitempty"`
-	Chapters       []int  `json:"chapters,omitempty"` // 证据实际落在哪些章节
-	RequiresChange bool   `json:"requires_change"`    // 是否应立即进入返工队列，由 Editor 语义判断
+	Chapters       []int  `json:"chapters,omitempty"` // Chapters the evidence actually falls in
+	RequiresChange bool   `json:"requires_change"`    // Whether this should enter the rework queue now, judged semantically by the Editor
 }
 
-// DimensionScore 单维度评审评分。
+// DimensionScore is a single review dimension score.
 type DimensionScore struct {
-	Dimension string `json:"dimension"`         // 由评审 rubric 定义，可按任务扩展
+	Dimension string `json:"dimension"`         // Defined by the review rubric, extensible per task
 	Score     int    `json:"score"`             // 0-100
-	Verdict   string `json:"verdict,omitempty"` // 兼容旧审阅；运行时不再用阈值覆盖模型判断
-	Comment   string `json:"comment,omitempty"` // 该维度的简要结论
+	Verdict   string `json:"verdict,omitempty"` // Legacy review compatibility; at runtime thresholds no longer override the model judgement
+	Comment   string `json:"comment,omitempty"` // Brief conclusion for this dimension
 }
 
-// ReviewEntry Editor 的审阅条目。
+// ReviewEntry is one of the Editor's review entries.
 type ReviewEntry struct {
 	Chapter          int                `json:"chapter"`
 	Scope            string             `json:"scope"` // chapter / global / arc
 	Issues           []ConsistencyIssue `json:"issues"`
-	Dimensions       []DimensionScore   `json:"dimensions,omitempty"`      // 分维度评分
+	Dimensions       []DimensionScore   `json:"dimensions,omitempty"`      // Per-dimension scores
 	ContractStatus   string             `json:"contract_status,omitempty"` // met / partial / missed
-	ContractMisses   []string           `json:"contract_misses,omitempty"` // 未达成的 contract 条目
-	ContractNotes    string             `json:"contract_notes,omitempty"`  // 对 contract 履行情况的简述
+	ContractMisses   []string           `json:"contract_misses,omitempty"` // Contract entries not met
+	ContractNotes    string             `json:"contract_notes,omitempty"`  // Short note on contract fulfilment
 	Verdict          string             `json:"verdict"`                   // accept / polish / rewrite
 	Summary          string             `json:"summary"`
-	AffectedChapters []int              `json:"affected_chapters,omitempty"` // 需要重写/打磨的章节号
+	AffectedChapters []int              `json:"affected_chapters,omitempty"` // Chapter numbers needing rewrite/polish
 }
 
-// CriticalCount 返回 critical 级别问题数量。
+// CriticalCount returns the number of critical-severity issues.
 func (r *ReviewEntry) CriticalCount() int {
 	n := 0
 	for _, issue := range r.Issues {
@@ -104,7 +107,7 @@ func (r *ReviewEntry) CriticalCount() int {
 	return n
 }
 
-// ErrorCount 返回 error 级别问题数量。
+// ErrorCount returns the number of error-severity issues.
 func (r *ReviewEntry) ErrorCount() int {
 	n := 0
 	for _, issue := range r.Issues {
@@ -115,7 +118,7 @@ func (r *ReviewEntry) ErrorCount() int {
 	return n
 }
 
-// Dimension 返回指定维度的评分；不存在则返回 nil。
+// Dimension returns the score for the named dimension, or nil when absent.
 func (r *ReviewEntry) Dimension(name string) *DimensionScore {
 	if r == nil {
 		return nil

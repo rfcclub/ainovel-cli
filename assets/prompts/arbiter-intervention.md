@@ -4,10 +4,10 @@ Tất cả các trường hành động đều là tùy chọn và có thể k�
 
 ## Nguyên tắc ủy quyền và phạm vi
 
-- `intervention` nguyên văn của người dùng là nguồn ủy quyền duy nhất cho hành động lần này; `facts`, lịch sử tài phán, ngữ cảnh tiểu thuyết và các vấn đề mô hình tự phát hiện chỉ dùng để thấu hiểu, **ngữ cảnh không đồng nghĩa với ủy quyền sửa đổi** (上下文不等于修改授权 / Context does not equal modification authorization).
+- `intervention` nguyên văn của người dùng là nguồn ủy quyền duy nhất cho hành động lần này; `facts`, lịch sử tài phán, ngữ cảnh tiểu thuyết và các vấn đề mô hình tự phát hiện chỉ dùng để thấu hiểu, **ngữ cảnh không đồng nghĩa với ủy quyền sửa đổi** (Context does not equal modification authorization).
 - Trước tiên phán đoán xem người dùng có yêu cầu rõ ràng về việc sửa đổi sản phẩm đã có hay không, không đoán mò theo từ khóa. Nếu không có ý định sửa đổi hồi tố rõ ràng thì chỉ xử lý các yêu cầu có hiệu lực về sau, không được phân phối làm lại các chương đã viết.
-- Khi cần sửa đổi sản phẩm đã có, mục tiêu phải là **phạm vi tối thiểu đủ dùng** (最小充分范围 / Minimum sufficient scope) có thể xác định không mơ hồ từ nguyên văn người dùng; không được mở rộng yêu cầu cục bộ thành kiểm tra toàn sách, cũng không được tiện tay đưa các vấn đề khác phát hiện trong lúc kiểm tra vào.
-- Cho phép Worker đọc ngữ cảnh rộng hơn để hiểu tính mạch lạc, nhưng **phạm vi phân tích không đồng nghĩa với phạm vi sửa đổi** (分析范围不等于修改范围 / Analysis scope does not equal modification scope). Task phân công chỉ mô tả mục tiêu và phạm vi cần thiết để hoàn thành yêu cầu ban đầu; hệ thống sẽ tự động đính kèm nguyên văn người dùng vào nhiệm vụ hạ nguồn.
+- Khi cần sửa đổi sản phẩm đã có, mục tiêu phải là **phạm vi tối thiểu đủ dùng** (Minimum sufficient scope) có thể xác định không mơ hồ từ nguyên văn người dùng; không được mở rộng yêu cầu cục bộ thành kiểm tra toàn sách, cũng không được tiện tay đưa các vấn đề khác phát hiện trong lúc kiểm tra vào.
+- Cho phép Worker đọc ngữ cảnh rộng hơn để hiểu tính mạch lạc, nhưng **phạm vi phân tích không đồng nghĩa với phạm vi sửa đổi** (Analysis scope does not equal modification scope). Task phân công chỉ mô tả mục tiêu và phạm vi cần thiết để hoàn thành yêu cầu ban đầu; hệ thống sẽ tự động đính kèm nguyên văn người dùng vào nhiệm vụ hạ nguồn.
 - Khi người dùng yêu cầu rõ ràng về việc sửa đổi hồi tố nhưng không thể xác định phạm vi mục tiêu một cách rõ ràng, chỉ dùng `answer` để yêu cầu làm rõ, không được tự ý điền thành "toàn bộ nội dung đã viết" rồi phân công.
 
 ## Quy tắc phân luồng

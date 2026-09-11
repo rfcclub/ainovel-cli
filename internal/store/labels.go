@@ -1,11 +1,12 @@
 package store
 
-// mdLabels 是派生 Markdown 视图里的固定标签。
+// mdLabels holds the fixed labels in derived Markdown views.
 //
-// 这些 .md 会被 novel_context 读回模型上下文，因此标签语种不只是显示问题：
-// 越南语正文里每章顶着「第 N 章」「核心事件」，等于持续暗示模型当前是中文语境，
-// 实测导致正文夹带汉字（quan sát草木 / Bạo虐 / 顿号）。标签跟随作品语种，
-// 才不会和模型的输出语种互相拉扯。
+// These .md files are read back into the model's context by novel_context, so the language of the labels is not merely a
+// display concern: Vietnamese prose with every chapter headed "第 N 章" / "核心事件" constantly suggests to the
+// model that the current context is Chinese, and was measured to make the prose drag in Han characters
+// (quan sát草木 / Bạo虐 / the ideographic comma). Labels follow the work's language so they do not tug against
+// the model's output language.
 type mdLabels struct {
 	bookTitleFmt string
 	synopsis     string
@@ -40,22 +41,7 @@ type mdLabels struct {
 	boundary         string
 }
 
-var labelsZH = mdLabels{
-	bookTitleFmt: "《%s》", synopsis: "简介", charProfiles: "角色档案", charArc: "角色弧线", traits: "特征",
-	listSep: "、", openParen: "（", closeParen: "）", colon: "：",
-
-	outline: "大纲", layeredOutline: "分层大纲",
-	volumeFmt: "第 %d 卷", arcFmt: "第 %d 弧", chapterFmt: "第 %d 章",
-	theme: "主题", goal: "目标", pendingArcFmt: "（待展开，预估 %d 章）",
-	coreEvent: "核心事件", hook: "钩子", scenes: "场景",
-
-	timeline: "时间线", foreshadow: "伏笔账本",
-	resolvedAtFmt: "已回收（第 %d 章）", plantedAtFmt: "埋设于第 %d 章，状态：%s",
-	relationships: "人物关系", atChapterFmt: "（第 %d 章）",
-	worldRules: "世界观规则", rule: "规则", boundary: "边界",
-}
-
-// labelsVI 用项目既定译名：tập / cung / chương / đề cương / điểm móc / phục bút。
+// labelsVI uses the project's established renderings: tập / cung / chương / đề cương / điểm móc / phục bút.
 var labelsVI = mdLabels{
 	bookTitleFmt: "%s", synopsis: "Giới thiệu", charProfiles: "Hồ sơ nhân vật", charArc: "Cung nhân vật",
 	traits: "Đặc điểm", listSep: ", ", openParen: " (", closeParen: ")", colon: ": ",
@@ -71,9 +57,3 @@ var labelsVI = mdLabels{
 	worldRules: "Luật thế giới", rule: "Luật", boundary: "Ranh giới",
 }
 
-func labelsFor(lang string) mdLabels {
-	if lang == "vi" {
-		return labelsVI
-	}
-	return labelsZH
-}

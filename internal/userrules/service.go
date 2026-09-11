@@ -10,36 +10,41 @@ import (
 	"github.com/voocel/ainovel-cli/internal/store"
 )
 
-// Service 编排用户规则快照的生成与更新：归一化各来源 → 确定性合并 → 落盘。
+// Service orchestrates the creation and updating of the user-rules snapshot: normalise every
+// source -> deterministic merge -> persist.
 //
-// 两个调用方共用同一套逻辑：
-//   - 开书/刷新：Build / GetOrBuild，由 Host 确定性调用。
-//   - 运行中更新：Arbiter 提取 rules 后，Host 调用 AddRuntimeRule。
+// Two callers share the same logic:
+//   - Book start / refresh: Build / GetOrBuild, called deterministically by the Host.
+//   - Runtime update: after the Arbiter extracts rules, the Host calls AddRuntimeRule.
 type Service struct {
 	store     *store.Store
 	norm      *Normalizer
 	rulesOpts rules.LoadOptions
 }
 
-// NewService 构造服务。model 用于归一化（应为能力较强的模型）；model 为 nil 时
-// 所有来源降级为 raw preferences（仍可产出快照，机械检查由 system_defaults 兜底）。
+// NewService builds the service. model is used for normalisation (it should be a
+// capable model); when model is nil every source degrades to raw preferences (a
+// snapshot is still produced and the mechanical checks are covered by system_defaults).
 func NewService(st *store.Store, model agentcore.ChatModel, opts rules.LoadOptions) *Service {
 	return &Service{store: st, norm: NewNormalizer(model), rulesOpts: opts}
 }
 
-// normalizeOrDegrade 归一化一个来源；失败时记录真实错误并降级为 raw preferences
-// （快照 Status=degraded、原文保留）——降级是可见事实，错误原因进日志。
+// normalizeOrDegrade normalises one source; on failure it records the real error and
+// degrades to raw preferences (snapshot Status=degraded, raw text preserved) — the
+// degradation is a visible fact and the cause goes to the log.
 func (s *Service) normalizeOrDegrade(ctx context.Context, source, text string) rules.Candidate {
 	cand, err := s.norm.Normalize(ctx, source, text)
 	if err != nil {
-		slog.Warn("规则归一化失败，降级为原文偏好", "module", "rules", "source", source, "err", err)
+		slog.Warn("chuẩn hóa quy tắc thất bại, hạ cấp thành sở thích nguyên văn", "module", "rules", "source", source, "err", err)
 		return degraded(source, text)
 	}
 	return cand
 }
 
-// Build 从静态来源（system_defaults + rules 文件 + 启动 prompt）归一化生成快照并落盘。
-// 开书/刷新时调用。startupPrompt 可空。
+// Build normalises the static sources (system_defaults + rules files + startup prompt)
+// into a snapshot and persists it. Called when a book starts or is refreshed;
+// startupPrompt may be empty. The baseline follows the novel language so the fatigue
+// words and forbidden phrases match the language actually being written.
 func (s *Service) Build(ctx context.Context, startupPrompt string) (*rules.Snapshot, error) {
 	cands := []rules.Candidate{rules.SystemDefaults()}
 	for _, rs := range rules.RawFileSources(s.rulesOpts) {
@@ -55,8 +60,8 @@ func (s *Service) Build(ctx context.Context, startupPrompt string) (*rules.Snaps
 	return &snap, nil
 }
 
-// GetOrBuild 返回当前快照；缺失时按 system_defaults + rules 文件初始化。
-// 运行时读取路径统一走这里。
+// GetOrBuild returns the current snapshot, initialising it from system_defaults plus
+// the rules files when absent. Every runtime read path goes through here.
 func (s *Service) GetOrBuild(ctx context.Context) (*rules.Snapshot, error) {
 	cur, err := s.store.UserRules.Load()
 	if err != nil {
@@ -68,9 +73,10 @@ func (s *Service) GetOrBuild(ctx context.Context) (*rules.Snapshot, error) {
 	return s.Build(ctx, "")
 }
 
-// AddRuntimeRule 归一化一条运行中长期规则，以最高优先级叠加到当前快照并落盘。
-// 永不因归一化失败而报错——失败时该条降级为 raw preferences。
-// 返回叠加后的快照与本次的归一化候选。
+// AddRuntimeRule normalises one long-lived runtime rule, overlays it onto the current
+// snapshot at the highest priority and persists the result. It never fails because of a
+// normalisation error — that rule just degrades to raw preferences. Returns the overlaid
+// snapshot and this round's normalisation candidate.
 func (s *Service) AddRuntimeRule(ctx context.Context, text string) (*rules.Snapshot, rules.Candidate, error) {
 	cur, err := s.GetOrBuild(ctx)
 	if err != nil {

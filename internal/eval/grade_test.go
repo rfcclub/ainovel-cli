@@ -10,7 +10,7 @@ import (
 	"github.com/voocel/ainovel-cli/internal/stylestat"
 )
 
-// writerSmokeCase 是一个典型的 writer 第一章 smoke case，用于门禁测试。
+// writerSmokeCase is a typical writer first-chapter smoke case, used for gate testing.
 func writerSmokeCase() Case {
 	c := Case{
 		ID:          "writer_first_chapter",
@@ -29,7 +29,7 @@ func writerSmokeCase() Case {
 	return c
 }
 
-// cleanCollected 构造一个"一章正常完成"的采集结果（无 findings、无残留、契约齐备）。
+// cleanCollected builds a "one chapter finished normally" collection result (no findings, no residue, contracts complete).
 func cleanCollected() Collected {
 	return Collected{
 		Dir:      "/fake",
@@ -54,7 +54,7 @@ func TestGradePassesCleanRun(t *testing.T) {
 	}
 }
 
-// 核心假设：writer 跳过 commit 必须被拦下。
+// Core assumption: a writer skipping commit must be stopped.
 func TestGradeCatchesMissingCommit(t *testing.T) {
 	col := cleanCollected()
 	col.Checkpoints = col.Checkpoints[:2] // 去掉 commit
@@ -67,7 +67,7 @@ func TestGradeCatchesMissingCommit(t *testing.T) {
 	}
 }
 
-// 核心假设：pending 残留必须被拦下。
+// Core assumption: a pending residue must be stopped.
 func TestGradeCatchesPendingResidual(t *testing.T) {
 	col := cleanCollected()
 	col.Pending["pending_commit"] = true
@@ -80,7 +80,7 @@ func TestGradeCatchesPendingResidual(t *testing.T) {
 	}
 }
 
-// 核心假设：phase 不符必须被拦下。
+// Core assumption: a phase mismatch must be stopped.
 func TestGradeCatchesPhaseMismatch(t *testing.T) {
 	col := cleanCollected()
 	col.Progress.Phase = domain.PhaseOutline // 还没进入 writing
@@ -102,7 +102,7 @@ func TestGradeMinChaptersNotMet(t *testing.T) {
 	}
 }
 
-// critical finding 触发 hard fail；warning finding 仅 WARN（默认 max_severity=warning）。
+// A critical finding triggers a hard fail while a warning finding is only WARN (max_severity=warning by default).
 func TestGradeFindingSeverity(t *testing.T) {
 	crit := cleanCollected()
 	crit.Report.Findings = []diag.Finding{{Rule: "PhaseFlowMismatch", Severity: diag.SevCritical, Title: "状态机异常"}}
@@ -117,7 +117,7 @@ func TestGradeFindingSeverity(t *testing.T) {
 		t.Fatalf("warning finding 应 WARN，得到 %s", r.Outcome)
 	}
 
-	// info finding 是信息性 Note，不应把干净的 case 推成 WARN。
+	// An info finding is an informational Note and must not push a clean case into WARN.
 	info := cleanCollected()
 	info.Report.Findings = []diag.Finding{{Rule: "GhostCharacter", Severity: diag.SevInfo, Title: "角色长期未出场"}}
 	ri := Grade(writerSmokeCase(), info)
@@ -138,7 +138,7 @@ func TestGradeRuntimeErrorFails(t *testing.T) {
 	}
 }
 
-// 契约依赖工件读坏不能 false pass，必须 hard fail（fail-loud）。
+// A corrupt artifact the contract depends on must not false-pass but hard-fail (fail-loud).
 func TestGradeLoadErrorFails(t *testing.T) {
 	col := cleanCollected()
 	col.LoadErrors = []string{"pending_commit: unexpected end of JSON input"}
@@ -170,7 +170,7 @@ func TestGradeDeltaStylestatWarnAndBlock(t *testing.T) {
 	if d.Outcome != Warn {
 		t.Fatalf("stylestat 回归默认应 WARN，得到 %s", d.Outcome)
 	}
-	if !hasIssue(d.Warnings, "delta:stylestat", "文体指标回归") {
+	if !hasIssue(d.Warnings, "delta:stylestat", "thoái hóa") {
 		t.Fatalf("应报告 stylestat warning，实际 %+v", d.Warnings)
 	}
 
@@ -179,7 +179,7 @@ func TestGradeDeltaStylestatWarnAndBlock(t *testing.T) {
 	if d.Outcome != Fail {
 		t.Fatalf("stylestat block 应 FAIL，得到 %s", d.Outcome)
 	}
-	if !hasIssue(d.HardFails, "delta:stylestat", "文体指标回归") {
+	if !hasIssue(d.HardFails, "delta:stylestat", "thoái hóa") {
 		t.Fatalf("应报告 stylestat hard fail，实际 %+v", d.HardFails)
 	}
 }
@@ -221,10 +221,10 @@ func TestGradeDeltaCostAndToolCallThresholds(t *testing.T) {
 	if d.Outcome != Warn {
 		t.Fatalf("成本/tool_calls 超阈值应 WARN，得到 %s", d.Outcome)
 	}
-	if !hasIssue(d.Warnings, "delta:tool_calls", "超过阈值") {
+	if !hasIssue(d.Warnings, "delta:tool_calls", "vượt ngưỡng") {
 		t.Fatalf("应报告 tool_calls 回归，实际 %+v", d.Warnings)
 	}
-	if !hasIssue(d.Warnings, "delta:cost", "超过阈值") {
+	if !hasIssue(d.Warnings, "delta:cost", "vượt ngưỡng") {
 		t.Fatalf("应报告 cost 回归，实际 %+v", d.Warnings)
 	}
 }
@@ -234,7 +234,7 @@ func TestGradeDeltaInsufficientStylestatIsNote(t *testing.T) {
 	if d.Outcome != Pass {
 		t.Fatalf("样本不足不应改变门禁，得到 %s", d.Outcome)
 	}
-	if !hasIssue(d.Notes, "stylestat", "样本不足") {
+	if !hasIssue(d.Notes, "stylestat", "Không đủ mẫu") {
 		t.Fatalf("应记录 stylestat 样本不足 note，实际 %+v", d.Notes)
 	}
 }
@@ -276,7 +276,7 @@ func cleanResult() Result {
 	return r
 }
 
-// TestCollectReadsCheckpoints 验证真实 store 读取路径：写入 checkpoint 后 Collect 能命中契约。
+// TestCollectReadsCheckpoints verifies the real store read path: after a checkpoint is written, Collect hits the contract.
 func TestCollectReadsCheckpoints(t *testing.T) {
 	dir := t.TempDir()
 	s := store.NewStore(dir)

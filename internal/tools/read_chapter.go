@@ -9,7 +9,7 @@ import (
 	"github.com/voocel/ainovel-cli/internal/store"
 )
 
-// ReadChapterTool 读取章节原文，让 Agent 能回读自己和前文的文字。
+// ReadChapterTool reads chapter text so the Agent can re-read its own words and earlier prose.
 type ReadChapterTool struct {
 	store *store.Store
 }
@@ -20,22 +20,22 @@ func NewReadChapterTool(store *store.Store) *ReadChapterTool {
 
 func (t *ReadChapterTool) Name() string { return "read_chapter" }
 func (t *ReadChapterTool) Description() string {
-	return "读取章节原文。可读终稿、草稿，或提取角色对话片段"
+	return "Đọc nguyên văn chương. Có thể đọc bản chung cuộc, bản nháp, hoặc trích đoạn đối thoại của nhân vật"
 }
-func (t *ReadChapterTool) Label() string { return "读取章节" }
+func (t *ReadChapterTool) Label() string { return "Đọc chương" }
 
-// 纯读工具，可被并发调度（editor 审阅时常一次读多章）。
+// A pure read tool; it may be scheduled concurrently (the editor often reads several chapters at once while reviewing).
 func (t *ReadChapterTool) ReadOnly(_ json.RawMessage) bool        { return true }
 func (t *ReadChapterTool) ConcurrencySafe(_ json.RawMessage) bool { return true }
 
 func (t *ReadChapterTool) Schema() map[string]any {
 	return schema.Object(
-		schema.Property("chapter", schema.Int("章节号（读单章时必填）")),
-		schema.Property("from", schema.Int("起始章节号（读范围时使用）")),
-		schema.Property("to", schema.Int("结束章节号（读范围时使用）")),
-		schema.Property("source", schema.Enum("来源", "final", "draft")).Required(),
-		schema.Property("character", schema.String("角色名（提取对话片段时使用）")),
-		schema.Property("max_runes", schema.Int("每章最大字符数（范围读取时截取，默认 2000）")),
+		schema.Property("chapter", schema.Int("Số chương (bắt buộc khi đọc một chương)")),
+		schema.Property("from", schema.Int("Số chương bắt đầu (dùng khi đọc theo khoảng)")),
+		schema.Property("to", schema.Int("Số chương kết thúc (dùng khi đọc theo khoảng)")),
+		schema.Property("source", schema.Enum("Nguồn", "final", "draft")).Required(),
+		schema.Property("character", schema.String("Tên nhân vật (dùng khi trích đoạn đối thoại)")),
+		schema.Property("max_runes", schema.Int("Số ký tự tối đa mỗi chương (cắt bớt khi đọc theo khoảng, mặc định 2000)")),
 	)
 }
 
@@ -55,12 +55,12 @@ func (t *ReadChapterTool) Execute(_ context.Context, args json.RawMessage) (json
 		return nil, fmt.Errorf("source must be final or draft")
 	}
 
-	// 模式 1：提取角色对话
+	// Mode 1: extract character dialogue
 	if a.Character != "" {
 		var warnings []string
 		warn := func(scope string, err error) {
 			if err != nil {
-				warnings = append(warnings, fmt.Sprintf("%s 读取失败: %v", scope, err))
+				warnings = append(warnings, fmt.Sprintf("đọc %s thất bại: %v", scope, err))
 			}
 		}
 		chars, err := t.store.Characters.Load()
@@ -85,7 +85,7 @@ func (t *ReadChapterTool) Execute(_ context.Context, args json.RawMessage) (json
 			"samples":   samples,
 		}
 		if len(samples) == 0 {
-			result["hint"] = "该角色暂无可用的已提交对话样本"
+			result["hint"] = "Nhân vật này chưa có mẫu đối thoại đã commit nào khả dụng"
 		}
 		if len(warnings) > 0 {
 			result["status"] = "partial"
@@ -94,7 +94,7 @@ func (t *ReadChapterTool) Execute(_ context.Context, args json.RawMessage) (json
 		return json.Marshal(result)
 	}
 
-	// 模式 2：范围读取
+	// Mode 2: range read
 	if a.From > 0 && a.To > 0 {
 		maxRunes := a.MaxRunes
 		if maxRunes <= 0 {
@@ -129,7 +129,7 @@ func (t *ReadChapterTool) Execute(_ context.Context, args json.RawMessage) (json
 		})
 	}
 
-	// 模式 3：单章读取
+	// Mode 3: single-chapter read
 	if a.Chapter <= 0 {
 		return nil, fmt.Errorf("chapter is required")
 	}
@@ -150,7 +150,7 @@ func (t *ReadChapterTool) Execute(_ context.Context, args json.RawMessage) (json
 			"chapter": a.Chapter,
 			"source":  a.Source,
 			"exists":  false,
-			"hint":    "请求的来源中没有该章节；如需读取另一来源，请明确指定 source",
+			"hint":    "Nguồn được yêu cầu không có chương này; nếu cần đọc nguồn khác, hãy chỉ định rõ source",
 		})
 	}
 
@@ -162,7 +162,7 @@ func (t *ReadChapterTool) Execute(_ context.Context, args json.RawMessage) (json
 	})
 }
 
-// maxCompletedChapter 返回已完成章节列表中的最大章节号。
+// maxCompletedChapter returns the highest chapter number in the completed-chapter list.
 func maxCompletedChapter(completed []int) int {
 	m := 0
 	for _, ch := range completed {

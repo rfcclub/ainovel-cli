@@ -12,7 +12,7 @@ import (
 	"github.com/voocel/ainovel-cli/internal/store"
 )
 
-// ResolveOutlineFeedbackTool 落盘“现有计划仍适用”的审查结论并消费反馈。
+// ResolveOutlineFeedbackTool persists the "the current plan still applies" audit verdict and consumes the feedback.
 type ResolveOutlineFeedbackTool struct{ store *store.Store }
 
 func NewResolveOutlineFeedbackTool(store *store.Store) *ResolveOutlineFeedbackTool {
@@ -20,15 +20,15 @@ func NewResolveOutlineFeedbackTool(store *store.Store) *ResolveOutlineFeedbackTo
 }
 
 func (t *ResolveOutlineFeedbackTool) Name() string  { return "resolve_outline_feedback" }
-func (t *ResolveOutlineFeedbackTool) Label() string { return "确认大纲无需调整" }
+func (t *ResolveOutlineFeedbackTool) Label() string { return "Xác nhận đại cương không cần chỉnh" }
 func (t *ResolveOutlineFeedbackTool) Description() string {
-	return "确认已审查全部 writer_feedback，且现有后续计划仍然适用。只有无需修改大纲时调用；需要修改时使用 revise_outline 或结构工具。"
+	return "Xác nhận đã duyệt hết writer_feedback và kế hoạch tiếp theo hiện có vẫn còn phù hợp. Chỉ gọi khi đại cương không cần sửa; khi cần sửa thì dùng revise_outline hoặc các công cụ cấu trúc."
 }
 func (t *ResolveOutlineFeedbackTool) ReadOnly(json.RawMessage) bool        { return false }
 func (t *ResolveOutlineFeedbackTool) ConcurrencySafe(json.RawMessage) bool { return false }
 func (t *ResolveOutlineFeedbackTool) StrictSchema() bool                   { return true }
 func (t *ResolveOutlineFeedbackTool) Schema() map[string]any {
-	return schema.Object(schema.Property("reason", schema.String("现有计划仍然适用的理由")).Required())
+	return schema.Object(schema.Property("reason", schema.String("Lý do kế hoạch hiện có vẫn còn phù hợp")).Required())
 }
 
 func (t *ResolveOutlineFeedbackTool) Execute(_ context.Context, args json.RawMessage) (json.RawMessage, error) {
@@ -47,7 +47,7 @@ func (t *ResolveOutlineFeedbackTool) Execute(_ context.Context, args json.RawMes
 		return nil, fmt.Errorf("load outline feedback: %w: %w", errs.ErrStoreRead, err)
 	}
 	if len(feedback) == 0 {
-		return nil, fmt.Errorf("没有待处理的大纲反馈: %w", errs.ErrToolPrecondition)
+		return nil, fmt.Errorf("không có phản hồi đại cương nào đang chờ xử lý: %w", errs.ErrToolPrecondition)
 	}
 	if err := t.store.Outline.SaveOutlineFeedbackResolution(input.Reason, len(feedback)); err != nil {
 		return nil, fmt.Errorf("save outline feedback resolution: %w: %w", errs.ErrStoreWrite, err)

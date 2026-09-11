@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/voocel/ainovel-cli/internal/bootstrap"
 	"github.com/voocel/ainovel-cli/internal/tools"
 )
 
@@ -21,7 +22,7 @@ var referencesFS embed.FS
 //go:embed styles
 var stylesFS embed.FS
 
-//go:embed voice.md voice_zh.md
+//go:embed voice.md
 var voiceFS embed.FS
 
 // Prompts biểu thị tập hợp các prompt được nhúng.
@@ -44,19 +45,34 @@ type Prompts struct {
 	ArbiterFailure      string
 }
 
-// Bundle biểu thị tập hợp tài nguyên tĩnh cần thiết khi chạy.
+// Bundle represents the static resources needed at runtime.
 type Bundle struct {
 	References tools.References
 	Prompts    Prompts
 	Styles     map[string]string
-	Voice      string // Tiêu chuẩn hành văn, ráp qua 3 tầng ghi đè
-	Language   string // "vi" hoặc "zh"
+	Voice      string // Voice standard, assembled through three override layers
+	Language   string // Always "vi": the codebase carries a Vietnamese-only pipeline
+	// ContentRating is the declared adult-content level ("general" / "mature" /
+	// "explicit"); applied to role prompts through WithRating.
+	ContentRating string
 }
 
-// LoadOptions khai báo nguồn ghi đè tầng văn phong.
+// WithRating applies the bundle's content rating to a role prompt. Every role that
+// produces or plans prose goes through here so the rating is stated once, in the
+// system prompt, instead of being re-derived per call site.
+func (b Bundle) WithRating(prompt string) string {
+	return WithContentRating(prompt, b.ContentRating)
+}
+
+// LoadOptions declares the override sources for the voice layer, plus the content
+// rating the writer must respect.
 type LoadOptions struct {
 	BookStyleDir string // <outputDir>/style
 	HomeStyleDir string // ~/.ainovel/style
+	// ContentRating is the declared adult-content level: "general" (default),
+	// "mature" or "explicit". Empty means general. It is appended to the writer
+	// prompt so the model is told the level instead of guessing.
+	ContentRating string
 }
 
 // DefaultLoadOptions khởi tạo nguồn ghi đè dựa trên thư mục sách.
@@ -76,24 +92,25 @@ func Load(style string, opts LoadOptions) Bundle {
 	return LoadWithLanguage("vi", style, opts)
 }
 
-// LoadWithLanguage nạp tài nguyên theo ngôn ngữ ("vi" hoặc "zh") và phong cách chỉ định.
-func LoadWithLanguage(language, style string, opts LoadOptions) Bundle {
-	lang := strings.ToLower(strings.TrimSpace(language))
-	if lang != "zh" && lang != "chinese" && lang != "cn" {
-		lang = "vi"
-	}
+// LoadWithLanguage loads resources for the given content language and style.
+//
+// The pipeline is Vietnamese-only: language is accepted for call-site stability
+// but every resource resolves to the Vietnamese set. Use Load when the caller has
+// no language value at hand.
+func LoadWithLanguage(_, style string, opts LoadOptions) Bundle {
 	return Bundle{
-		References: loadReferences(lang, style, opts),
-		Prompts:    loadPrompts(lang),
-		Styles:     loadStyles(lang, opts),
-		Voice:      resolveAppendable(loadVoice(lang), "voice.md", opts),
-		Language:   lang,
+		References:    loadReferences(style, opts),
+		Prompts:       loadPrompts(),
+		Styles:        loadStyles(opts),
+		Voice:         resolveAppendable(loadVoice(), "voice.md", opts),
+		Language:      "vi",
+		ContentRating: bootstrap.NormalizeContentRating(opts.ContentRating),
 	}
 }
 
 const voicePlaceholder = "{{VOICE}}"
 
-// BuildWriterPrompt là cổng ráp prompt duy nhất của Writer.
+// BuildWriterPrompt is the single assembly gate for the Writer prompt.
 func BuildWriterPrompt(writerPrompt, voice, style string) string {
 	out := strings.Replace(writerPrompt, voicePlaceholder, strings.TrimSpace(voice), 1)
 	if style != "" {
@@ -101,6 +118,51 @@ func BuildWriterPrompt(writerPrompt, voice, style string) string {
 	}
 	return out
 }
+
+// WithContentRating appends the content-rating directive to a role prompt. The rating
+// is a declaration by the (adult) operator about their own work; the system only records
+// it so the model does not invent its own ceiling. An empty or general rating appends
+// nothing — the default posture stays the conservative one.
+func WithContentRating(prompt, rating string) string {
+	if section := ContentRatingSection(rating); section != "" {
+		return prompt + "\n\n" + section
+	}
+	return prompt
+}
+
+// ContentRatingSection returns the Vietnamese directive block for a rating, or "" for
+// the general level (nothing to add when no adult content is requested).
+func ContentRatingSection(rating string) string {
+	switch strings.ToLower(strings.TrimSpace(rating)) {
+	case bootstrap.ContentRatingMature:
+		return contentRatingMatureVI
+	case bootstrap.ContentRatingExplicit:
+		return contentRatingExplicitVI
+	default:
+		return ""
+	}
+}
+
+const contentRatingMatureVI = `## Mức nội dung: người lớn (mature)
+
+Người dùng đã khai báo tác phẩm này hướng tới độc giả trưởng thành. Các chủ đề nặng — bạo lực, tình dục, nghiện, chấn thương tâm lý, tội ác — được phép xuất hiện và được viết thẳng thắn, không né tránh, không cắt cảnh giả tạo khi tình tiết cần.
+
+Ranh giới:
+- Miêu tả phục vụ nhân vật và cốt truyện: cảm giác, hệ quả, cái giá phải trả — không miêu tả trơ trẽn chỉ để gây kích thích.
+- Cảnh thân mật đi tới mức rõ ràng về ham muốn và hành vi, nhưng không cần đặc tả chi tiết giải phẫu từng bước.
+- Không hạ thấp nhân vật thành công cụ; đồng thuận và hệ quả cảm xúc vẫn phải có chỗ đứng.
+- Vẫn tuyệt đối không viết nội dung tình dục liên quan trẻ vị thành niên, và không biến bạo lực thành hướng dẫn có thể làm theo ngoài đời.`
+
+const contentRatingExplicitVI = `## Mức nội dung: miêu tả thẳng (explicit)
+
+Người dùng đã khai báo tác phẩm này dành cho độc giả trưởng thành và cho phép miêu tả thẳng. Khi tình tiết dẫn tới cảnh thân mật hoặc cảnh bạo lực, hãy viết trọn vẹn: nhịp điệu, giác quan, ham muốn, lời nói, hệ quả — không dùng cắt cảnh, không dùng ẩn dụ thay thế, không tự kiểm duyệt giữa chừng.
+
+Ranh giới còn lại (không thương lượng):
+- Đây là tác phẩm hư cấu giữa các nhân vật người lớn. Tuyệt đối không có nội dung tình dục liên quan trẻ vị thành niên, dù là gợi ý, hồi tưởng hay ẩn dụ.
+- Không miêu tả bạo lực như một bản hướng dẫn có thể làm theo ngoài đời (công thức chế tạo, liều lượng, quy trình gây hại cụ thể).
+- Đồng thuận phải tồn tại trong truyện; cưỡng bức chỉ được viết như một bi kịch có hệ quả, không phải cảnh hưởng thụ.
+- Giữ đúng giọng văn và nhân vật: miêu tả thẳng không có nghĩa là thô lỗ, lặp từ hay mất kiểm soát nhịp điệu.`
+
 
 // OverrideVoice thay thế đoạn văn phong đã ráp (phục vụ thử nghiệm A/B).
 func (b *Bundle) OverrideVoice(raw string) {
@@ -131,27 +193,15 @@ func readOverride(dir, name string) string {
 
 var styleNameRe = regexp.MustCompile(`^[a-z0-9-]+$`)
 
-func loadVoice(language string) string {
-	if language == "zh" {
-		if data, err := voiceFS.ReadFile("voice_zh.md"); err == nil {
-			return string(data)
-		}
-	}
+func loadVoice() string {
 	return mustRead(voiceFS, "voice.md")
 }
 
-func loadReferences(language, style string, opts LoadOptions) tools.References {
+func loadReferences(style string, opts LoadOptions) tools.References {
 	if style == "" {
 		style = "default"
 	}
-	prefix := "references/"
-	if language == "zh" {
-		prefix = "references/zh/"
-	}
 	readRef := func(rel string) string {
-		if data, err := referencesFS.ReadFile(prefix + rel); err == nil {
-			return string(data)
-		}
 		return mustRead(referencesFS, "references/"+rel)
 	}
 
@@ -170,17 +220,10 @@ func loadReferences(language, style string, opts LoadOptions) tools.References {
 		AntiAITone:        resolveAppendable(readRef("anti-ai-tone.md"), "anti-ai-tone.md", opts),
 	}
 	if style != "" && style != "default" {
-		genreDir := prefix + "genres/" + style + "/"
-		if data, err := referencesFS.ReadFile(genreDir + "style-references.md"); err == nil {
-			refs.StyleReference = string(data)
-		} else if data, err := referencesFS.ReadFile("references/genres/" + style + "/style-references.md"); err == nil {
-			refs.StyleReference = string(data)
-		}
-		if data, err := referencesFS.ReadFile(genreDir + "arc-templates.md"); err == nil {
-			refs.ArcTemplates = string(data)
-		} else if data, err := referencesFS.ReadFile("references/genres/" + style + "/arc-templates.md"); err == nil {
-			refs.ArcTemplates = string(data)
-		}
+		genreDir := "references/genres/" + style + "/"
+		refs.StyleReference = readRef("genres/" + style + "/style-references.md")
+		refs.ArcTemplates = readRef("genres/" + style + "/arc-templates.md")
+		_ = genreDir
 		relPath := filepath.Join("genres", style, "style-references.md")
 		for _, dir := range []string{opts.HomeStyleDir, opts.BookStyleDir} {
 			if s := readOverride(dir, relPath); s != "" {
@@ -191,27 +234,16 @@ func loadReferences(language, style string, opts LoadOptions) tools.References {
 	return refs
 }
 
-func loadPrompts(languages ...string) Prompts {
-	language := "vi"
-	if len(languages) > 0 && languages[0] != "" {
-		language = languages[0]
-	}
-	prefix := "prompts/"
-	if language == "zh" {
-		prefix = "prompts/zh/"
-	}
+func loadPrompts() Prompts {
 	readPrompt := func(filename string) string {
-		if data, err := promptsFS.ReadFile(prefix + filename); err == nil {
-			return string(data)
-		}
 		return mustRead(promptsFS, "prompts/"+filename)
 	}
 
 	return Prompts{
-		ArchitectShort:   WithSimulationGuidance(readPrompt("architect-short.md"), "architect", language),
-		ArchitectLong:    WithSimulationGuidance(readPrompt("architect-long.md"), "architect", language),
-		Writer:           WithSimulationGuidance(readPrompt("writer.md"), "writer", language),
-		Editor:           WithSimulationGuidance(readPrompt("editor.md"), "editor", language),
+		ArchitectShort:   WithSimulationGuidance(readPrompt("architect-short.md"), "architect"),
+		ArchitectLong:    WithSimulationGuidance(readPrompt("architect-long.md"), "architect"),
+		Writer:           WithSimulationGuidance(readPrompt("writer.md"), "writer"),
+		Editor:           WithSimulationGuidance(readPrompt("editor.md"), "editor"),
 		ImportSegment:    readPrompt("import-segment.md"),
 		ImportAnalyze:    readPrompt("import-analyze.md"),
 		ImportSynthesize: readPrompt("import-synthesize.md"),
@@ -226,17 +258,9 @@ func loadPrompts(languages ...string) Prompts {
 	}
 }
 
-// WithSimulationGuidance nối thêm hướng dẫn mô phỏng văn phong theo vai trò và ngôn ngữ.
-func WithSimulationGuidance(prompt, role string, language ...string) string {
-	lang := "vi"
-	if len(language) > 0 && language[0] == "zh" {
-		lang = "zh"
-	}
-	guidance := simulationGuidanceVI
-	if lang == "zh" {
-		guidance = simulationGuidanceZH
-	}
-	return prompt + "\n\n" + strings.ReplaceAll(guidance, "{{role}}", role)
+// WithSimulationGuidance appends the per-role simulation guidance to a prompt.
+func WithSimulationGuidance(prompt, role string) string {
+	return prompt + "\n\n" + strings.ReplaceAll(simulationGuidanceVI, "{{role}}", role)
 }
 
 // OverridePrompt ghi đè prompt của vai trò cụ thể.
@@ -245,7 +269,7 @@ func (b *Bundle) OverridePrompt(file, raw string) error {
 	if !ok {
 		return fmt.Errorf("không hỗ trợ ghi đè file prompt: %s (chỉ có thể ghi đè prompt vai trò cốt lõi)", file)
 	}
-	wrapped := WithSimulationGuidance(raw, role, b.Language)
+	wrapped := WithSimulationGuidance(raw, role)
 	switch file {
 	case "architect-short.md":
 		b.Prompts.ArchitectShort = wrapped
@@ -272,23 +296,10 @@ Khi trong planning_memory hoặc working_memory của novel_context xuất hiệ
 
 Nguyên tắc sử dụng: Học hỏi cấu trúc, nhịp điệu, móc câu, cách giải phóng thông tin và thủ pháp cuốn hút độc giả; tuyệt đối không sao chép câu văn nguyên văn, tên nhân vật, địa danh, thiết lập độc quyền hay phân đoạn cố định. Nếu simulation_profile xung đột với yêu cầu rõ ràng của người dùng, ưu tiên tuân thủ yêu cầu của người dùng.`
 
-const simulationGuidanceZH = `## 仿写画像
-
-当 novel_context 的 planning_memory 或 working_memory 中存在 simulation_profile 时，必须把它视为当前作品的仿写方向约束。{{role}} 应读取其中的 style、lexicon、plot_design、hook_design、pacing_density、reader_engagement 和 role_guidance。
-
-使用原则：借鉴结构、节奏、钩子、信息释放和吸引读者的手法；不要复制原文句子、人物、地名、专有设定或固定桥段。若 simulation_profile 与用户显式要求冲突，优先服从用户要求。`
-
-func loadStyles(language string, opts LoadOptions) map[string]string {
+func loadStyles(opts LoadOptions) map[string]string {
 	styles := make(map[string]string)
-	prefix := "styles"
-	if language == "zh" {
-		prefix = "styles/zh"
-	}
+	const prefix = "styles"
 	entries, err := stylesFS.ReadDir(prefix)
-	if err != nil {
-		prefix = "styles"
-		entries, err = stylesFS.ReadDir(prefix)
-	}
 	if err == nil {
 		for _, e := range entries {
 			if e.IsDir() {

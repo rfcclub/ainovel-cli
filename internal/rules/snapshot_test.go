@@ -6,7 +6,7 @@ import (
 )
 
 func TestBuildSnapshot_FieldOverridePrecedence(t *testing.T) {
-	// 低→高：defaults 设 修仙，project 覆盖为 都市；高优先级胜出。
+	// Low→high: defaults sets a cultivation genre and project overrides it with urban; the higher priority wins.
 	snap := BuildSnapshot([]Candidate{
 		{Source: "system_defaults", Structured: Structured{Genre: "修仙"}},
 		{Source: "project:a.md", Structured: Structured{Genre: "都市"}},
@@ -23,7 +23,7 @@ func TestBuildSnapshot_FieldOverridePrecedence(t *testing.T) {
 }
 
 func TestBuildSnapshot_EmptyAndZeroAreAbsent(t *testing.T) {
-	// 归一化器吐占位：genre:""、空串元素——都必须当缺失，不覆盖低优先级真值。
+	// The normaliser emits placeholders: genre:"" and empty-string elements — both must count as missing and not override a lower-priority real value.
 	snap := BuildSnapshot([]Candidate{
 		{Source: "system_defaults", Structured: Structured{
 			Genre: "修仙",
@@ -77,7 +77,7 @@ func TestBuildSnapshot_DegradedPropagates(t *testing.T) {
 	if snap.Status != StatusDegraded {
 		t.Fatalf("任一来源降级则 status=degraded，得到 %s", snap.Status)
 	}
-	// 降级来源仍以 raw preferences 进入，不阻断；其它来源 structured 照常。
+	// A degraded source still enters as raw preferences without blocking; other sources carry structured as usual.
 	if len(snap.Structured.FatigueWords) == 0 {
 		t.Fatalf("降级不应影响其它来源的 structured")
 	}
@@ -86,12 +86,25 @@ func TestBuildSnapshot_DegradedPropagates(t *testing.T) {
 	}
 }
 
-func TestSystemDefaults_MatchesLegacyDefaultMD(t *testing.T) {
+// The mechanical baseline is Vietnamese. It must stay populated, and it must never carry
+// Chinese entries: a Vietnamese novel got zero coverage from the old Chinese-only table,
+// where all 16 fatigue words were dead weight and the mechanical floor silently never fired.
+func TestSystemDefaults_VietnameseOnly(t *testing.T) {
 	d := SystemDefaults().Structured
-	if len(d.ForbiddenPhrases) != 4 {
-		t.Fatalf("默认禁语应为 4 条，得到 %d", len(d.ForbiddenPhrases))
+	if len(d.ForbiddenPhrases) == 0 {
+		t.Fatal("baseline should carry forbidden phrases")
 	}
-	if len(d.FatigueWords) != 16 {
-		t.Fatalf("默认疲劳词应为 16 条，得到 %d", len(d.FatigueWords))
+	if len(d.FatigueWords) == 0 {
+		t.Fatal("baseline should carry fatigue words")
+	}
+	for word := range d.FatigueWords {
+		for _, r := range word {
+			if r >= 0x4E00 && r <= 0x9FFF {
+				t.Fatalf("baseline must not carry Chinese fatigue words, got %q", word)
+			}
+		}
+	}
+	if _, ok := d.FatigueWords["bỗng nhiên"]; !ok {
+		t.Fatalf("baseline should carry Vietnamese fatigue words, got %v", d.FatigueWords)
 	}
 }

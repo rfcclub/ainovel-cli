@@ -37,7 +37,7 @@ func TestLoadStateOnlyPrioritizesExternalRevisionFeedback(t *testing.T) {
 		t.Fatalf("Save progress: %v", err)
 	}
 	if err := st.Outline.AppendOutlineFeedback(storepkg.ChapterFeedback{
-		Chapter: 1, Deviation: "无明显偏离", Suggestion: "下一章继续推进",
+		Chapter: 1, Deviation: "không lệch rõ rệt", Suggestion: "chương sau tiếp tục đẩy",
 	}); err != nil {
 		t.Fatalf("Append normal feedback: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestLoadStateOnlyPrioritizesExternalRevisionFeedback(t *testing.T) {
 	}
 
 	if err := st.Outline.AppendOutlineFeedback(storepkg.ChapterFeedback{
-		Chapter: 1, StoryChanged: true, ChangeSummary: "用户改写了本章结局",
+		Chapter: 1, StoryChanged: true, ChangeSummary: "người dùng viết lại kết cục chương này",
 	}); err != nil {
 		t.Fatalf("Append external revision feedback: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestLoadStateOnlyPrioritizesExternalRevisionFeedback(t *testing.T) {
 	}
 }
 
-// helper：构造一个处于 Writing 阶段、分层模式的 Progress。
+// helper: builds a Progress in the Writing phase with layered mode enabled.
 func writingProgress(completed []int, flow domain.FlowState) *domain.Progress {
 	return &domain.Progress{
 		Phase:             domain.PhaseWriting,
@@ -109,8 +109,8 @@ func TestRoute_PendingRewritesFirst(t *testing.T) {
 	if got == nil || got.Agent != "writer" {
 		t.Fatalf("expected writer for rewrites, got %+v", got)
 	}
-	if got.Task != "重写第 3 章" {
-		t.Errorf("expected '重写第 3 章', got %q", got.Task)
+	if got.Task != "viết lại chương 3" {
+		t.Errorf("expected 'viết lại chương 3', got %q", got.Task)
 	}
 	if got.Chapter != 3 {
 		t.Errorf("expected Chapter=3, got %d", got.Chapter)
@@ -121,7 +121,7 @@ func TestRoute_PendingPolishingVerb(t *testing.T) {
 	p := writingProgress([]int{1}, domain.FlowPolishing)
 	p.PendingRewrites = []int{2}
 	got := Route(State{Progress: p})
-	if got == nil || got.Task != "打磨第 2 章" {
+	if got == nil || got.Task != "gọt giũa chương 2" {
 		t.Fatalf("expected polish verb, got %+v", got)
 	}
 }
@@ -157,10 +157,10 @@ func TestRoute_ArcEndNeedsReview(t *testing.T) {
 	if got == nil || got.Agent != "editor" {
 		t.Fatalf("expected editor for arc review, got %+v", got)
 	}
-	if got.Reason != "弧末评审未完成" {
+	if got.Reason != "Thẩm duyệt cuối cung chưa hoàn tất" {
 		t.Errorf("reason mismatch: %q", got.Reason)
 	}
-	if !strings.Contains(got.Task, "第 11-22 章") || !strings.Contains(got.Task, "chapter=22") {
+	if !strings.Contains(got.Task, "chương 11-22") || !strings.Contains(got.Task, "chapter=22") {
 		t.Fatalf("arc review task must carry exact span and endpoint: %q", got.Task)
 	}
 }
@@ -178,7 +178,7 @@ func TestRoute_ArcEndHasReviewNeedsSummary(t *testing.T) {
 		HasArcReview: true,
 	}
 	got := Route(s)
-	if got == nil || got.Agent != "editor" || got.Reason != "弧摘要未完成" {
+	if got == nil || got.Agent != "editor" || got.Reason != "Tóm tắt cung chưa hoàn tất" {
 		t.Fatalf("expected arc summary editor call, got %+v", got)
 	}
 }
@@ -198,7 +198,7 @@ func TestRoute_VolumeEndNeedsVolumeSummary(t *testing.T) {
 		HasArcSummary: true,
 	}
 	got := Route(s)
-	if got == nil || got.Reason != "卷摘要未完成" {
+	if got == nil || got.Reason != "Tóm tắt tập chưa hoàn tất" {
 		t.Fatalf("expected volume summary request, got %+v", got)
 	}
 }
@@ -223,7 +223,7 @@ func TestRoute_NeedsArcExpansion(t *testing.T) {
 	if got == nil || got.Agent != "architect_long" {
 		t.Fatalf("expected architect_long for expansion, got %+v", got)
 	}
-	if got.Reason != "下一弧骨架待展开" {
+	if got.Reason != "Cung khung xương kế tiếp đang chờ mở rộng" {
 		t.Errorf("reason mismatch: %q", got.Reason)
 	}
 }
@@ -245,7 +245,7 @@ func TestRoute_NeedsNewVolume(t *testing.T) {
 		HasVolumeSummary: true,
 	}
 	got := Route(s)
-	if got == nil || got.Agent != "architect_long" || got.Reason != "卷末需决定追加新卷、收官卷或结束全书" {
+	if got == nil || got.Agent != "architect_long" || got.Reason != "Cuối tập cần quyết định thêm tập mới, tập kết thúc hay kết thúc toàn sách" {
 		t.Fatalf("expected append_volume/complete_book dispatch, got %+v", got)
 	}
 }
@@ -257,8 +257,8 @@ func TestRoute_NormalContinue(t *testing.T) {
 	if got == nil || got.Agent != "writer" {
 		t.Fatalf("expected writer for next chapter, got %+v", got)
 	}
-	if got.Task != "写第 4 章" {
-		t.Errorf("expected '写第 4 章', got %q", got.Task)
+	if got.Task != "Viết chương 4" {
+		t.Errorf("expected 'Viết chương 4', got %q", got.Task)
 	}
 	if got.Chapter != 4 {
 		t.Errorf("expected Chapter=4, got %d", got.Chapter)
@@ -272,7 +272,7 @@ func TestRoute_ExternalRevisionDispatchesArchitectBeforeWriter(t *testing.T) {
 		Progress: p, LastCompleted: 3, PlanningTier: domain.PlanningTierShort,
 		ImmediateFeedbackCount: 2,
 	})
-	if got == nil || got.Agent != "architect_short" || !strings.Contains(got.Reason, "2 条") {
+	if got == nil || got.Agent != "architect_short" || !strings.Contains(got.Reason, "2 ảnh hưởng") {
 		t.Fatalf("expected architect to consume feedback, got %+v", got)
 	}
 }
@@ -301,7 +301,7 @@ func TestRoute_NonLayeredOutlineExhaustedDispatchesArchitect(t *testing.T) {
 	if got == nil || got.Agent != "architect_short" {
 		t.Fatalf("expected architect_short at outline exhaustion, got %+v", got)
 	}
-	for _, want := range []string{"complete_book", "revise_outline", "第 4 章"} {
+	for _, want := range []string{"complete_book", "revise_outline", "chương 4"} {
 		if !strings.Contains(got.Task, want) {
 			t.Errorf("task missing %q: %s", want, got.Task)
 		}
@@ -309,7 +309,7 @@ func TestRoute_NonLayeredOutlineExhaustedDispatchesArchitect(t *testing.T) {
 }
 
 func TestRoute_ArcEndNonLayeredSkipsBoundary(t *testing.T) {
-	// 非 Layered 模式即使 ArcBoundary 非 nil 也不走弧末分支
+	// Non-Layered mode never takes the arc-end branch even when ArcBoundary is non-nil
 	p := &domain.Progress{
 		Phase:             domain.PhaseWriting,
 		Flow:              domain.FlowWriting,
@@ -337,7 +337,7 @@ func contains(s, sub string) bool {
 	return false
 }
 
-// 规划期补齐:设定缺项 + 规划师可判定 → 照缺项续派同一规划师。
+// Planning-stage catch-up: a missing foundation item with an identifiable planner → re-dispatch the same planner for the gap.
 func TestRoute_PlanningFillDispatchesSamePlanner(t *testing.T) {
 	base := State{
 		Progress:          &domain.Progress{Phase: domain.PhaseOutline},
@@ -356,7 +356,7 @@ func TestRoute_PlanningFillDispatchesSamePlanner(t *testing.T) {
 	if got == nil || got.Agent != "architect_long" {
 		t.Fatalf("long tier 应续派 architect_long,got %+v", got)
 	}
-	for _, want := range []string{"补齐基础设定", "characters", "world_rules", "save_foundation"} {
+	for _, want := range []string{"Bổ sung các mục thiếu của thiết lập nền tảng", "characters", "world_rules", "save_foundation"} {
 		if !contains(got.Task, want) {
 			t.Errorf("补齐任务缺少 %q: %s", want, got.Task)
 		}
@@ -369,13 +369,13 @@ func TestRoute_PlanningFillDispatchesSamePlanner(t *testing.T) {
 		t.Fatalf("book 缺失时应指示 save_book,got %+v", got)
 	}
 
-	// 首次规划未落盘任何设定(tier 空)→ 选型是语义判断,交 LLM
+	// The first planning round has landed no foundation at all (empty tier) → choosing the type is a semantic judgement, left to the LLM
 	unknown := base
 	if got := Route(unknown); got != nil {
 		t.Fatalf("tier 未知时应交 LLM 裁定,got %+v", got)
 	}
 
-	// 缺项已齐 → 无补齐指令(等 phase 推进)
+	// No items missing → no catch-up instruction (wait for the phase to advance)
 	done := base
 	done.PlanningTier = domain.PlanningTierLong
 	done.FoundationMissing = nil

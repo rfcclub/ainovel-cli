@@ -96,7 +96,7 @@ func TestCollectFailsLoudWhenCompletedChapterMissing(t *testing.T) {
 		t.Fatalf("save progress: %v", err)
 	}
 	col := Collect(dir, nil)
-	if !containsString(col.LoadErrors, "progress 标记已完成但终稿为空") {
+	if !containsString(col.LoadErrors, "progress đánh dấu đã hoàn thành nhưng bản chung cuộc rỗng") {
 		t.Fatalf("缺终稿应进入 LoadErrors，实际 %v", col.LoadErrors)
 	}
 }

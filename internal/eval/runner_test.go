@@ -9,9 +9,9 @@ import (
 	"github.com/voocel/ainovel-cli/internal/host"
 )
 
-// fakeEngine 模拟 host：Abort 后像 waitDone 那样向 done 发送一次。done 带 1 缓冲，
-// 测试据此断言 drive 是否 drain 了 Done（len(done)==0 即已消费）——这是防 send-on-closed-channel
-// panic 的关键不变量。
+// fakeEngine mimics the host: after Abort it sends once to done the way waitDone does. done has a
+// buffer of 1, letting the test assert whether drive drained Done (len(done)==0 means consumed) —
+// the key invariant preventing a send-on-closed-channel panic.
 type fakeEngine struct {
 	events chan host.Event
 	stream chan string
@@ -57,12 +57,12 @@ func (f *fakeEngine) wasAborted() bool {
 	return f.aborted
 }
 
-// 超时路径必须 Abort 后 drain 到 Done 再返回超时错误——否则 RunCase 的 Close 会与
-// waitDone 竞争关闭 done 通道而 panic（Codex review #1）。
+// The timeout path must Abort, drain to Done and only then return the timeout error — otherwise
+// RunCase's Close races waitDone to close the done channel and panics (Codex review #1).
 func TestDriveTimeoutDrainsToDone(t *testing.T) {
 	f := newFakeEngine()
 	err := drive(f, 1, RunOptions{Timeout: 30 * time.Millisecond})
-	if err == nil || !strings.Contains(err.Error(), "超时") {
+	if err == nil || !strings.Contains(err.Error(), "quá thời gian") {
 		t.Fatalf("超时应返回超时错误，得到 %v", err)
 	}
 	if !f.wasAborted() {
@@ -73,7 +73,7 @@ func TestDriveTimeoutDrainsToDone(t *testing.T) {
 	}
 }
 
-// 达到章数上限：Abort 后 drain 到 Done，返回 nil（正常截停，不是超时）。
+// Reaching the chapter cap: Abort, drain to Done and return nil (a normal stop, not a timeout).
 func TestDriveCapStopsAndDrains(t *testing.T) {
 	f := newFakeEngine()
 	f.mu.Lock()
@@ -93,7 +93,7 @@ func TestDriveCapStopsAndDrains(t *testing.T) {
 	}
 }
 
-// 引擎自然 Done（书写完）：无需 Abort，返回 nil。
+// The engine finishes naturally (the book is written): no Abort needed, return nil.
 func TestDriveNaturalDoneReturnsNil(t *testing.T) {
 	f := newFakeEngine()
 	f.done <- struct{}{}

@@ -6,16 +6,16 @@ import (
 	"strings"
 )
 
-// LoadPromptFile 读取文件作为初始创作要求。
+// LoadPromptFile reads a file as the initial creation request.
 func LoadPromptFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("读取 prompt 失败: %w", err)
+		return "", fmt.Errorf("đọc prompt thất bại: %w", err)
 	}
 	return strings.TrimSpace(string(data)), nil
 }
 
-// PrepareQuick 整理快速启动提示词。
+// PrepareQuick prepares the quick-start prompt.
 func PrepareQuick(rawPrompt string) (string, error) {
 	prompt := strings.TrimSpace(rawPrompt)
 	if prompt == "" {

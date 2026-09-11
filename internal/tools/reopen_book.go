@@ -12,11 +12,12 @@ import (
 	"github.com/voocel/ainovel-cli/internal/store"
 )
 
-// ReopenBookTool 把已完结的书重新打开进入返工态，由 Engine 在干预动作边界调用。
-// 完本后 completePhaseGate 硬拦一切 subagent 派发，用户无法返工已写章节。
-// 本工具不是 subagent，complete 期可调：它原子地把 phase 切回 writing、目标章入
-// PendingRewrites、flow=rewriting，随后 Flow Router 照既有返工队列派 writer 逐章重写，
-// 队列跑完 commit_chapter 自动重新收尾完结。Gate / Router / edit / commit 重逻辑均无需改动。
+// ReopenBookTool reopens a completed book into rework mode, called by the Engine at an intervention action boundary.
+// After completion completePhaseGate hard-blocks every subagent dispatch, leaving the user unable to rework written
+// chapters. This tool is not a subagent and is callable during complete: it atomically switches phase back to writing,
+// puts the target chapters into PendingRewrites and sets flow=rewriting, after which the Flow Router dispatches the
+// writer against the existing rework queue to rewrite chapter by chapter, and commit_chapter re-wraps up completion once
+// the queue drains. None of the Gate / Router / edit / commit heavy logic needs changing.
 type ReopenBookTool struct {
 	store *store.Store
 }
@@ -26,26 +27,26 @@ func NewReopenBookTool(s *store.Store) *ReopenBookTool {
 }
 
 func (t *ReopenBookTool) Name() string  { return "reopen_book" }
-func (t *ReopenBookTool) Label() string { return "重开返工" }
+func (t *ReopenBookTool) Label() string { return "Mở lại để làm lại" }
 
 func (t *ReopenBookTool) Description() string {
-	return "把已完结（phase=complete）的全书重新打开进入返工态，用于用户在完本后要求重写/打磨某几章。" +
-		"chapters 是要返工的已完成章节号；调用后这些章进入重写队列，Host 会逐章派 writer 重写，全部改完自动重新完结。" +
-		"仅在全书已完结、且用户明确要求修改已写章节时使用；用户要新增剧情/扩展篇幅不属返工，不要用本工具。"
+	return "Mở lại toàn sách đã kết thúc (phase=complete) để vào trạng thái làm lại, dùng khi người dùng yêu cầu viết lại/gọt giũa vài chương sau khi đã hoàn thành sách." +
+		"chapters là các số chương đã hoàn thành cần làm lại; sau khi gọi, những chương này vào hàng đợi viết lại, Host sẽ lần lượt giao writer viết lại, sửa xong hết thì tự động kết thúc sách trở lại." +
+		"Chỉ dùng khi toàn sách đã kết thúc và người dùng yêu cầu rõ ràng về việc sửa chương đã viết; nếu người dùng muốn thêm tình tiết/mở rộng dung lượng thì không phải làm lại, đừng dùng công cụ này."
 }
 
-// 写工具，禁止并发。
+// Write tool; concurrency is forbidden.
 func (t *ReopenBookTool) ReadOnly(_ json.RawMessage) bool        { return false }
 func (t *ReopenBookTool) ConcurrencySafe(_ json.RawMessage) bool { return false }
 
 func (t *ReopenBookTool) ActivityDescription(_ json.RawMessage) string {
-	return "重新打开全书返工"
+	return "Mở lại toàn sách để làm lại"
 }
 
 func (t *ReopenBookTool) Schema() map[string]any {
 	return schema.Object(
-		schema.Property("chapters", schema.Array("要返工的已完成章节号列表（至少一章）", schema.Int(""))).Required(),
-		schema.Property("reason", schema.String("返工原因（可选，如\"清理特殊字符\"）")),
+		schema.Property("chapters", schema.Array("Danh sách số chương đã hoàn thành cần làm lại (ít nhất một chương)", schema.Int(""))).Required(),
+		schema.Property("reason", schema.String("Lý do làm lại (tùy chọn, ví dụ \"dọn ký tự đặc biệt\")")),
 	)
 }
 
@@ -58,7 +59,7 @@ func (t *ReopenBookTool) Execute(_ context.Context, args json.RawMessage) (json.
 		return nil, fmt.Errorf("invalid args: %w: %w", errs.ErrToolArgs, err)
 	}
 	if len(a.Chapters) == 0 {
-		return nil, fmt.Errorf("chapters 不能为空，需指明要返工的章节: %w", errs.ErrToolArgs)
+		return nil, fmt.Errorf("chapters không được để trống, cần chỉ rõ chương cần làm lại: %w", errs.ErrToolArgs)
 	}
 
 	progress, err := t.store.Progress.Load()
@@ -66,9 +67,9 @@ func (t *ReopenBookTool) Execute(_ context.Context, args json.RawMessage) (json.
 		return nil, fmt.Errorf("load progress: %w: %w", errs.ErrStoreRead, err)
 	}
 	if progress == nil {
-		return nil, fmt.Errorf("progress 未初始化: %w", errs.ErrToolPrecondition)
+		return nil, fmt.Errorf("progress chưa được khởi tạo: %w", errs.ErrToolPrecondition)
 	}
-	// 只能返工已写章；不在已完成集合的章号属续写/越界，明确拒绝引导用户走篇幅调整。
+	// Only written chapters can be reworked; a chapter number outside the completed set means continuation or out-of-range, so it is refused explicitly and the user is pointed at length adjustment.
 	var invalid []int
 	for _, ch := range a.Chapters {
 		if !slices.Contains(progress.CompletedChapters, ch) {
@@ -76,15 +77,15 @@ func (t *ReopenBookTool) Execute(_ context.Context, args json.RawMessage) (json.
 		}
 	}
 	if len(invalid) > 0 {
-		return nil, fmt.Errorf("第 %v 章尚未写完，reopen 只能返工已完成章节（新增/扩展剧情请走篇幅调整）: %w", invalid, errs.ErrToolPrecondition)
+		return nil, fmt.Errorf("chương %v chưa viết xong, reopen chỉ làm lại được các chương đã hoàn thành (muốn thêm/mở rộng tình tiết thì điều chỉnh dung lượng): %w", invalid, errs.ErrToolPrecondition)
 	}
 
-	// phase 前置校验在 store.Reopen 内兜底（仅 complete 可调）。
+	// The phase precondition is backed up inside store.Reopen (callable only from complete).
 	if err := t.store.Progress.Reopen(a.Chapters, a.Reason); err != nil {
 		return nil, fmt.Errorf("reopen: %w: %w", errs.ErrStoreWrite, err)
 	}
 
-	// checkpoint：与 complete_book 对称（GlobalScope + meta/progress.json）。
+	// checkpoint: symmetric with complete_book (GlobalScope + meta/progress.json).
 	if _, err := t.store.Checkpoints.AppendArtifact(domain.GlobalScope(), "reopen", "meta/progress.json"); err != nil {
 		return nil, fmt.Errorf("checkpoint reopen: %w: %w", errs.ErrStoreWrite, err)
 	}
@@ -93,6 +94,6 @@ func (t *ReopenBookTool) Execute(_ context.Context, args json.RawMessage) (json.
 		"reopened":         true,
 		"phase":            string(domain.PhaseWriting),
 		"pending_rewrites": a.Chapters,
-		"next_step":        "已重新打开并把目标章入队。请等待 Host 指令派 writer 逐章返工；全部改完后会自动重新完结。",
+		"next_step":        "Đã mở lại và đưa các chương mục tiêu vào hàng đợi. Hãy chờ Host giao writer làm lại từng chương; sửa xong hết sẽ tự động kết thúc sách trở lại.",
 	})
 }

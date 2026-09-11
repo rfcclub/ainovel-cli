@@ -10,23 +10,23 @@ import (
 	"strconv"
 )
 
-// ValidateJSON 校验原始 JSON 是否满足直接返回契约使用的 JSON Schema 子集。
-// 该子集覆盖 object/array/string/integer/number/boolean/null、required、enum 和
-// additionalProperties。未声明 additionalProperties 时遵循 JSON Schema 默认语义，
-// 不额外拒绝未知字段。
+// ValidateJSON checks whether raw JSON satisfies the JSON Schema subset used by direct-return
+// contracts. That subset covers object/array/string/integer/number/boolean/null, required, enum
+// and additionalProperties. When additionalProperties is undeclared, JSON Schema default
+// semantics apply and unknown fields are not rejected.
 func ValidateJSON(schema map[string]any, raw []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
-		return fmt.Errorf("JSON 解析失败: %w", err)
+		return fmt.Errorf("phân tích JSON thất bại: %w", err)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err == nil {
-			return fmt.Errorf("JSON 后存在额外值")
+			return fmt.Errorf("có giá trị thừa sau JSON")
 		}
-		return fmt.Errorf("JSON 尾部非法: %w", err)
+		return fmt.Errorf("phần đuôi JSON không hợp lệ: %w", err)
 	}
 	return validateValue(schema, value, "$")
 }
@@ -34,24 +34,24 @@ func ValidateJSON(schema map[string]any, raw []byte) error {
 func validateValue(schema map[string]any, value any, path string) error {
 	types, err := schemaTypes(schema["type"])
 	if err != nil {
-		return fmt.Errorf("%s 契约非法: %w", path, err)
+		return fmt.Errorf("%s: contract không hợp lệ: %w", path, err)
 	}
 	if value == nil && !slices.Contains(types, "null") {
-		return fmt.Errorf("%s 必须是 %s，实际为 null", path, joinTypes(types))
+		return fmt.Errorf("%s phải là %s, thực tế là null", path, joinTypes(types))
 	} else if value != nil {
 		actual := valueType(value)
 		if len(types) > 0 && !slices.Contains(types, actual) && !(actual == "integer" && slices.Contains(types, "number")) {
-			return fmt.Errorf("%s 必须是 %s，实际为 %s", path, joinTypes(types), actual)
+			return fmt.Errorf("%s phải là %s, thực tế là %s", path, joinTypes(types), actual)
 		}
 	}
 
 	if rawEnum, exists := schema["enum"]; exists {
 		enum, err := enumValues(rawEnum)
 		if err != nil {
-			return fmt.Errorf("%s.enum 契约非法: %w", path, err)
+			return fmt.Errorf("%s.enum: contract không hợp lệ: %w", path, err)
 		}
 		if !enumContains(enum, value) {
-			return fmt.Errorf("%s 必须是 %v 之一，实际为 %v", path, enum, value)
+			return fmt.Errorf("%s phải là một trong %v, thực tế là %v", path, enum, value)
 		}
 	}
 	if value == nil {
@@ -62,21 +62,21 @@ func validateValue(schema map[string]any, value any, path string) error {
 	case map[string]any:
 		properties, ok := schema["properties"].(map[string]any)
 		if !ok {
-			return fmt.Errorf("%s 契约缺少 properties", path)
+			return fmt.Errorf("%s: contract thiếu properties", path)
 		}
 		required, err := requiredNames(schema["required"])
 		if err != nil {
-			return fmt.Errorf("%s.required 契约非法: %w", path, err)
+			return fmt.Errorf("%s.required: contract không hợp lệ: %w", path, err)
 		}
 		for _, name := range required {
 			if _, exists := typed[name]; !exists {
-				return fmt.Errorf("%s.%s 是必填字段", path, name)
+				return fmt.Errorf("%s.%s là trường bắt buộc", path, name)
 			}
 		}
 		if allowAdditional, declared := schema["additionalProperties"].(bool); declared && !allowAdditional {
 			for name := range typed {
 				if _, exists := properties[name]; !exists {
-					return fmt.Errorf("%s.%s 未在契约中声明", path, name)
+					return fmt.Errorf("%s.%s chưa được khai báo trong contract", path, name)
 				}
 			}
 		}
@@ -87,7 +87,7 @@ func validateValue(schema map[string]any, value any, path string) error {
 			}
 			childMap, ok := childSchema.(map[string]any)
 			if !ok {
-				return fmt.Errorf("%s.%s 契约不是对象", path, name)
+				return fmt.Errorf("%s.%s: contract không phải object", path, name)
 			}
 			if err := validateValue(childMap, child, path+"."+name); err != nil {
 				return err
@@ -96,7 +96,7 @@ func validateValue(schema map[string]any, value any, path string) error {
 	case []any:
 		itemSchema, ok := schema["items"].(map[string]any)
 		if !ok {
-			return fmt.Errorf("%s 契约缺少 items", path)
+			return fmt.Errorf("%s: contract thiếu items", path)
 		}
 		for i, item := range typed {
 			if err := validateValue(itemSchema, item, fmt.Sprintf("%s[%d]", path, i)); err != nil {
@@ -120,13 +120,13 @@ func schemaTypes(value any) ([]string, error) {
 		for _, item := range typed {
 			text, ok := item.(string)
 			if !ok {
-				return nil, fmt.Errorf("type 联合必须只包含字符串")
+				return nil, fmt.Errorf("union type chỉ được chứa chuỗi")
 			}
 			out = append(out, text)
 		}
 		return out, nil
 	default:
-		return nil, fmt.Errorf("type 必须是字符串或字符串数组")
+		return nil, fmt.Errorf("type phải là chuỗi hoặc mảng chuỗi")
 	}
 }
 
@@ -137,7 +137,7 @@ func requiredNames(value any) ([]string, error) {
 	if names, ok := stringSlice(value); ok {
 		return names, nil
 	}
-	return nil, fmt.Errorf("必须是字符串数组")
+	return nil, fmt.Errorf("phải là mảng chuỗi")
 }
 
 func stringSlice(value any) ([]string, bool) {
@@ -173,12 +173,12 @@ func enumValues(value any) ([]any, error) {
 				continue
 			}
 			if _, ok := item.(string); !ok {
-				return nil, fmt.Errorf("只支持字符串和 null")
+				return nil, fmt.Errorf("chỉ hỗ trợ chuỗi và null")
 			}
 		}
 		return typed, nil
 	default:
-		return nil, fmt.Errorf("必须是数组")
+		return nil, fmt.Errorf("phải là mảng")
 	}
 }
 
@@ -220,7 +220,7 @@ func valueType(value any) string {
 
 func joinTypes(types []string) string {
 	if len(types) == 0 {
-		return "有效 JSON 值"
+		return "giá trị JSON hợp lệ"
 	}
 	return fmt.Sprint(types)
 }

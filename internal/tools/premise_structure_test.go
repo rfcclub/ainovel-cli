@@ -7,13 +7,42 @@ import (
 )
 
 func TestParsePremiseSections(t *testing.T) {
+	// A premise written the way the current prompts instruct (Vietnamese headings).
+	premise := `# Tiền đề cốt truyện
+
+## Thể loại và giọng điệu
+Huyền huyễn phương Đông, tăng trưởng lạnh và cứng.
+
+## Định vị thể loại
+Truyện nâng cấp huyền huyễn phương Đông, hướng tới độc giả tìm khoái cảm và tiến triển quan hệ.
+
+## Xung đột cốt lõi
+Nhân vật chính phải chọn giữa quy tắc tông môn và lương tri cá nhân.
+
+## Chuyển hướng trung kỳ
+Lộ trình tu luyện cũ mất hiệu lực, buộc phải chuyển sang hệ cấm thuật.
+`
+
+	sections := parsePremiseSections(premise)
+	for _, heading := range []string{
+		"Thể loại và giọng điệu", "Định vị thể loại", "Xung đột cốt lõi", "Chuyển hướng trung kỳ",
+	} {
+		if sections[heading] == "" {
+			t.Fatalf("expected %s section, got %+v", heading, sections)
+		}
+	}
+}
+
+// Legacy premises written before the Vietnamese migration use Chinese headings; they
+// must still land on the canonical Vietnamese sections so migration keeps working.
+func TestParsePremiseSections_LegacyChineseAliases(t *testing.T) {
 	premise := `# Premise
 
 ## 题材和基调
 东方玄幻，冷硬成长。
 
 ## 题材定位
-东方玄幻升级流，面向追求爽点和关系推进的读者。
+东方玄幻升级流。
 
 ## 核心冲突
 主角必须在宗门规则与个人良知之间做选择。
@@ -23,53 +52,66 @@ func TestParsePremiseSections(t *testing.T) {
 `
 
 	sections := parsePremiseSections(premise)
-	if sections["题材和基调"] == "" {
-		t.Fatalf("expected 题材和基调 section, got %+v", sections)
+	for _, heading := range []string{
+		"Thể loại và giọng điệu", "Định vị thể loại", "Xung đột cốt lõi", "Chuyển hướng trung kỳ",
+	} {
+		if sections[heading] == "" {
+			t.Fatalf("legacy Chinese heading should alias to %s, got %+v", heading, sections)
+		}
 	}
-	if sections["题材定位"] == "" {
-		t.Fatalf("expected 题材定位 section, got %+v", sections)
+}
+
+// Models often echo the prompt's annotated heading ("Móc câu khác biệt: ...") verbatim;
+// the section must still be recognised.
+func TestParsePremiseSections_HeadingWithExplanatorySuffix(t *testing.T) {
+	premise := `## Móc câu khác biệt: Điểm độc đáo nhất đáng để độc giả theo dõi cuốn sách này
+Nhân vật chính nhớ lại mọi thứ đã xảy ra ở vòng lặp trước.
+
+## Cam kết cốt lõi: Cuốn sách này liên tục mang lại điều gì cho độc giả
+Mỗi chương đều trả một phần câu hỏi lớn.
+`
+	sections := parsePremiseSections(premise)
+	if sections["Móc câu khác biệt"] == "" {
+		t.Fatalf("suffixed heading should map to Móc câu khác biệt, got %+v", sections)
 	}
-	if sections["核心冲突"] == "" {
-		t.Fatalf("expected 核心冲突 section, got %+v", sections)
-	}
-	if sections["中段转折"] == "" {
-		t.Fatalf("expected 中期转向 alias normalized to 中段转折, got %+v", sections)
+	if sections["Cam kết cốt lõi"] == "" {
+		t.Fatalf("suffixed heading should map to Cam kết cốt lõi, got %+v", sections)
 	}
 }
 
 func TestPremiseStructure(t *testing.T) {
-	premise := `## 题材和基调
-升级流，偏冷硬。
+	premise := `## Thể loại và giọng điệu
+Truyện nâng cấp, thiên lạnh và cứng.
 
-## 题材定位
-升级流
+## Định vị thể loại
+Truyện nâng cấp.
 
-## 核心冲突
-冲突
+## Xung đột cốt lõi
+Xung đột.
 
-## 主角目标
-目标
+## Mục tiêu nhân vật chính
+Mục tiêu.
 
-## 终局方向
-终局
+## Hướng kết cục
+Kết cục.
 
-## 写作禁区
-禁区
+## Vùng cấm sáng tác
+Vùng cấm.
 
-## 差异化卖点
-卖点
+## Điểm bán hàng khác biệt
+Điểm bán hàng.
 
-## 差异化钩子
-钩子
+## Móc câu khác biệt
+Móc câu.
 
-## 核心兑现承诺
-兑现
+## Cam kết cốt lõi
+Cam kết.
 
-## 故事引擎
-引擎
+## Động cơ câu chuyện
+Động cơ.
 
-## 中段转折
-转折
+## Chuyển hướng trung kỳ
+Bước ngoặt.
 `
 
 	structure := premiseStructure(premise, domain.PlanningTierMid)
@@ -82,6 +124,47 @@ func TestPremiseStructure(t *testing.T) {
 	}
 }
 
+// A short-tier premise satisfies the template when it uses the Vietnamese headings the
+// current prompt instructs, including the short-specific section.
+func TestPremiseStructureShort(t *testing.T) {
+	premise := `## Thể loại và giọng điệu
+Giải cứu một tập, áp lực cao.
+
+## Định vị thể loại
+Phiêu lưu ngắn, mật độ cao.
+
+## Xung đột cốt lõi
+Nhân vật chính phải giải cứu con tin trong một đêm.
+
+## Mục tiêu nhân vật chính
+Cứu con tin và sống sót rời đi.
+
+## Hướng kết cục
+Hoàn thành nhiệm vụ nhưng phải trả giá.
+
+## Vùng cấm sáng tác
+Không mở rộng thành truyện dài kỳ.
+
+## Điểm bán hàng khác biệt
+Áp lực thời hạn và đảo chiều liên tục.
+
+## Móc câu khác biệt
+Mỗi lựa chọn đều rút ngắn thời gian giải cứu.
+
+## Cam kết cốt lõi
+Cảm giác gấp gáp, sự lựa chọn và đảo chiều.
+
+## Tính phù hợp với truyện ngắn
+Xung đột cốt lõi và cung nhân vật đều khép lại trong một nhiệm vụ.
+`
+
+	structure := premiseStructure(premise, domain.PlanningTierShort)
+	if ready, _ := structure["template_ready"].(bool); !ready {
+		t.Fatalf("expected short template_ready, got %+v", structure)
+	}
+}
+
+// A legacy Chinese short premise still satisfies the template through the alias table.
 func TestPremiseStructureShortAcceptsLegacyHeadingAlias(t *testing.T) {
 	premise := `## 题材和基调
 单卷高压营救。
@@ -116,6 +199,6 @@ func TestPremiseStructureShortAcceptsLegacyHeadingAlias(t *testing.T) {
 
 	structure := premiseStructure(premise, domain.PlanningTierShort)
 	if ready, _ := structure["template_ready"].(bool); !ready {
-		t.Fatalf("expected short template_ready, got %+v", structure)
+		t.Fatalf("expected legacy short premise to still satisfy the template, got %+v", structure)
 	}
 }

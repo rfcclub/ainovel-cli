@@ -1,6 +1,6 @@
 {
   // Provider và Model mặc định sử dụng.
-  // ★ Giá trị "provider" là một con trỏ (指针 / pointer) trỏ tới một key trong danh sách "providers" bên dưới.
+  // ★ Giá trị "provider" là một con trỏ (con trỏ / pointer) trỏ tới một key trong danh sách "providers" bên dưới.
   //   Trong TUI, bạn có thể dùng lệnh /config để quản lý Provider/Model và /model để chuyển đổi nhanh.
   "provider": "openrouter",
   "model": "google/gemini-2.5-flash",
@@ -9,9 +9,19 @@
   // Bỏ trống hoặc không khai báo = giữ nguyên mặc định của mô hình/nhà cung cấp.
   "reasoning_effort": "medium",
 
-  // Ngôn ngữ sáng tác nội dung tiểu thuyết: "vi" (Tiếng Việt, mặc định) hoặc "zh" (Tiếng Trung).
-  // Dù chọn ngôn ngữ sáng tác nào, toàn bộ giao diện TUI luôn hiển thị bằng Tiếng Việt.
-  "language": "vi",
+  // (Khoá "language" đã bị bỏ: toàn bộ pipeline — prompt, luật cơ học, nhãn Markdown,
+  // nhãn EPUB — nay chỉ chạy tiếng Việt. Bản dịch tiếng Trung vẫn nằm trong
+  // assets/*/zh/ để tham chiếu nhưng code không còn nhánh đọc chúng.)
+  // Mức nội dung được phép miêu tả trong truyện:
+  //   - "general"  (mặc định): hướng phổ thông, không thêm chỉ thị gì vào prompt.
+  //   - "mature"   : chủ đề người lớn được viết thẳng thắn nhưng có chừng mực.
+  //   - "explicit" : được miêu tả thẳng cảnh thân mật/bạo lực khi tình tiết dẫn tới.
+  // Đây là khai báo của người lớn tự chịu trách nhiệm về tác phẩm của mình: hệ thống chỉ
+  // ghi mức đó vào system prompt để model không tự đoán mức trần, KHÔNG thay người dùng
+  // kiểm duyệt. Các ranh giới bất khả thương lượng vẫn giữ: không nội dung tình dục liên
+  // quan trẻ vị thành niên, không công thức bạo lực có thể làm theo ngoài đời.
+  // Nhận cả bí danh: "adult"/"16+" → mature, "18+"/"nsfw" → explicit.
+  "content_rating": "general",
 
   // Danh mục cấu hình nhà cung cấp AI (Provider).
   // Các provider được hỗ trợ sẵn: openai, anthropic, gemini, openrouter, deepseek, qwen, glm, grok, mimo, ollama, bedrock.

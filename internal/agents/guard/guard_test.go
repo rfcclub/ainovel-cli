@@ -20,18 +20,20 @@ func newTestStore(t *testing.T) *store.Store {
 	return s
 }
 
-// TestSubAgentGuard_HardStopReasonEscalatesImmediately 验证：模型返回
-// safety / content_filter 这类不可恢复的 provider 端拒答时，子代理 StopGuard
-// 必须立即 Escalate 而不是注入催促消息。
+// TestSubAgentGuard_HardStopReasonEscalatesImmediately verifies that when the model returns an
+// unrecoverable provider-side refusal such as safety / content_filter, the subagent StopGuard must
+// Escalate immediately instead of injecting a nudge message.
 //
-// 历史背景：实测 hy3-preview:free 写第 2 章时连续 8 次 stop_reason='safety'
-// 拒答；旧逻辑反复注入"必须 commit"，模型继续 safety，攒到 3 次 block 才 escalate，
-// 之后 Engine 又重跑 writer 总共 3 次。每次都是新的 SubAgent → 缓存
-// 前缀全部冷启动。修复后第一次 safety 立即 escalate，Engine 可直接按不可恢复错误暂停。
+// Background: measured on hy3-preview:free writing chapter 2, eight consecutive
+// stop_reason='safety' refusals. The old logic kept injecting "you must commit", the model kept
+// refusing, and escalation only came after three blocks; the Engine then reran the writer three
+// times in total. Each attempt was a fresh SubAgent, so the whole cache prefix went cold. After the
+// fix the first safety refusal escalates at once and the Engine can pause on an unrecoverable
+// error directly.
 //
-// 注意只测 safety / content_filter：StopReasonError / StopReasonAborted 走
-// agentcore loop.go 直接终止 run 的分支，根本不会调用 StopGuard，列进来反而
-// 引入死代码。
+// Note that only safety / content_filter are tested: StopReasonError / StopReasonAborted take the
+// terminate the run outright in agentcore loop.go and never call the StopGuard at all, so listing
+// them would only introduce dead code.
 func TestSubAgentGuard_HardStopReasonEscalatesImmediately(t *testing.T) {
 	cases := []agentcore.StopReason{
 		agentcore.StopReason("safety"),
@@ -56,8 +58,9 @@ func TestSubAgentGuard_HardStopReasonEscalatesImmediately(t *testing.T) {
 	}
 }
 
-// TestSubAgentGuard_NormalStopStillBlocks 确保对正常 stop_reason 的拦截行为
-// 不受硬错误旁路的影响——LLM 自停且没 commit 时仍然要催。
+// TestSubAgentGuard_NormalStopStillBlocks ensures the interception of an ordinary stop_reason is
+// unaffected by the hard-error bypass — a model that stops on its own without committing still gets
+// nudged.
 func TestSubAgentGuard_NormalStopStillBlocks(t *testing.T) {
 	s := newTestStore(t)
 	guard := NewWriterStopGuard(s, nil)
@@ -77,15 +80,16 @@ func TestSubAgentGuard_NormalStopStillBlocks(t *testing.T) {
 	}
 }
 
-// TestSubAgentGuard_ProgressBetweenBlocksResetsCounter 验证：两次拦截之间出现过
-// 新 checkpoint（模型被催后重新 draft 等）时 consecutive 重置——升级只惩罚毫无
-// 产物的连续空转，遵循"有进展即重置"语义（issue #75）。
+// TestSubAgentGuard_ProgressBetweenBlocksResetsCounter verifies that consecutive resets when a new
+// checkpoint appeared between two interceptions (the model drafts again after a nudge, say) —
+// escalation punishes only idling with no output at all, following the "reset on progress" semantic
+// (issue #75).
 func TestSubAgentGuard_ProgressBetweenBlocksResetsCounter(t *testing.T) {
 	s := newTestStore(t)
 	guard := NewWriterStopGuard(s, nil)
 	normalStop := agentcore.StopInfo{TurnIndex: 1, Message: agentcore.Message{StopReason: agentcore.StopReasonStop}}
 
-	// 拦截 → 落盘新草稿（有进展）→ 再拦截：往复超过阈值也不得升级。
+	// Intercept → a new draft lands (progress) → intercept again: going back and forth past the threshold must still not escalate.
 	for i := 0; i < subagentMaxConsecutiveBlocks+2; i++ {
 		if d := guard(context.Background(), normalStop); d.Escalate {
 			t.Fatalf("escalated at block %d despite progress between blocks", i)
@@ -94,7 +98,7 @@ func TestSubAgentGuard_ProgressBetweenBlocksResetsCounter(t *testing.T) {
 			t.Fatalf("append draft: %v", err)
 		}
 	}
-	// 停止进展：连续空转拦截攒满阈值后才升级。
+	// Progress stops: escalation comes only after idling interceptions reach the threshold.
 	for i := 0; i < subagentMaxConsecutiveBlocks; i++ {
 		if d := guard(context.Background(), normalStop); d.Escalate {
 			t.Fatalf("escalated too early at idle block %d", i)
@@ -105,20 +109,21 @@ func TestSubAgentGuard_ProgressBetweenBlocksResetsCounter(t *testing.T) {
 	}
 }
 
-// TestWriterStopGuard_StageAwareBlockMessage 验证催促消息按已落盘 step 组装：
-// 静态的"必须调 commit_chapter"在前置步骤缺失或 commit 报错时会误导模型（issue #75）。
+// TestWriterStopGuard_StageAwareBlockMessage verifies the nudge message is assembled from the steps
+// already on disk: a static "you must call commit_chapter" misleads the model when a prerequisite step
+// is missing or the commit errored (issue #75).
 func TestWriterStopGuard_StageAwareBlockMessage(t *testing.T) {
 	s := newTestStore(t)
 	guard := NewWriterStopGuard(s, nil)
 	normalStop := agentcore.StopInfo{TurnIndex: 1, Message: agentcore.Message{StopReason: agentcore.StopReasonStop}}
 
-	// 无任何产物：应引导完整流程，而不是直接催 commit。
+	// No output at all: it should guide the full flow rather than nudging straight to commit.
 	d := guard(context.Background(), normalStop)
 	if !strings.Contains(d.InjectMessage, "draft_chapter") || !strings.Contains(d.InjectMessage, "plan_chapter") {
 		t.Fatalf("no-draft message should walk through the protocol, got %q", d.InjectMessage)
 	}
 
-	// 草稿已落盘：应催 check_consistency 收尾。
+	// The draft has landed: it should nudge toward wrapping up with check_consistency.
 	if _, err := s.Checkpoints.Append(domain.ChapterScope(1), "draft", "drafts/01.draft.md", "d1"); err != nil {
 		t.Fatalf("append draft: %v", err)
 	}
@@ -127,18 +132,19 @@ func TestWriterStopGuard_StageAwareBlockMessage(t *testing.T) {
 		t.Fatalf("draft-only message should point to check_consistency, got %q", d.InjectMessage)
 	}
 
-	// 草稿+一致性检查已完成：只差提交，且要为 commit 报错场景留出路。
+	// Draft plus consistency check done: only the commit is missing, and the message must
+	// leave room for a commit that returns an error.
 	if _, err := s.Checkpoints.Append(domain.ChapterScope(1), "consistency_check", "meta/checks/01.json", "c1"); err != nil {
 		t.Fatalf("append consistency_check: %v", err)
 	}
 	d = guard(context.Background(), normalStop)
-	if !strings.Contains(d.InjectMessage, "commit_chapter") || !strings.Contains(d.InjectMessage, "错误") {
+	if !strings.Contains(d.InjectMessage, "commit_chapter") || !strings.Contains(d.InjectMessage, "lỗi") {
 		t.Fatalf("ready-to-commit message should mention commit and error handling, got %q", d.InjectMessage)
 	}
 }
 
-// TestSubAgentGuard_BlockHookReceivesAgentAndReason 验证审计回调收到正确的
-// agent 名与 reason 序列——Host 靠它把拦截浮出到 TUI。
+// TestSubAgentGuard_BlockHookReceivesAgentAndReason checks that the audit hook receives the correct
+// The agent-name and reason sequence — the Host uses it to surface interceptions into the TUI.
 func TestSubAgentGuard_BlockHookReceivesAgentAndReason(t *testing.T) {
 	s := newTestStore(t)
 	var agents, reasons []string
@@ -168,7 +174,7 @@ func TestSubAgentGuard_BlockHookReceivesAgentAndReason(t *testing.T) {
 		t.Fatalf("last reason = %q, want escalated", last)
 	}
 
-	// hard_stop 也要上报。
+	// hard_stop must be reported too.
 	var hardReasons []string
 	hardGuard := NewWriterStopGuard(s, func(_, reason string, _ int32) {
 		hardReasons = append(hardReasons, reason)
@@ -182,12 +188,13 @@ func TestSubAgentGuard_BlockHookReceivesAgentAndReason(t *testing.T) {
 	}
 }
 
-// TestEditorStopGuard_TaskAware 验证任务感知：被派生成弧摘要时，仅 save_review（复核）
-// 不算完成，必须产出 arc_summary 才放行——封堵卷中骨架弧死循环的起点 Defect C。
+// TestEditorStopGuard_TaskAware verifies task awareness: when dispatched to produce an arc summary, a
+// mere save_review (a re-check) does not count as done and arc_summary must be produced before it is
+// let through — closing off Defect C, the entry point of the mid-volume skeleton-arc livelock.
 func TestEditorStopGuard_TaskAware(t *testing.T) {
 	normalStop := agentcore.StopInfo{TurnIndex: 1, Message: agentcore.Message{StopReason: agentcore.StopReasonStop}}
 
-	// 摘要任务 + 只存了 review → 必须阻拦（review 不满足 arc_summary 要求）。
+	// Summary task + only a review saved → must block (a review does not satisfy the arc_summary requirement).
 	t.Run("summary task blocks on review only", func(t *testing.T) {
 		s := newTestStore(t)
 		guard := NewEditorStopGuard(s, "生成第 5 卷第 1 弧摘要（save_arc_summary）", nil)
@@ -199,7 +206,7 @@ func TestEditorStopGuard_TaskAware(t *testing.T) {
 		}
 	})
 
-	// 摘要任务 + 已存 arc_summary → 放行。
+	// Summary task + arc_summary already saved → let through.
 	t.Run("summary task allows on arc_summary", func(t *testing.T) {
 		s := newTestStore(t)
 		guard := NewEditorStopGuard(s, "生成第 5 卷第 1 弧摘要（save_arc_summary）", nil)
@@ -211,7 +218,7 @@ func TestEditorStopGuard_TaskAware(t *testing.T) {
 		}
 	})
 
-	// 评审任务 + 存了 review → 放行（默认宽松行为不变）。
+	// Review task + review saved → let through (the default lenient behaviour is unchanged).
 	t.Run("review task allows on review", func(t *testing.T) {
 		s := newTestStore(t)
 		guard := NewEditorStopGuard(s, "对第 5 卷第 1 弧做弧级评审（scope=arc）", nil)

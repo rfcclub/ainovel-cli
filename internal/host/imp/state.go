@@ -7,8 +7,8 @@ import (
 	"github.com/voocel/ainovel-cli/internal/store"
 )
 
-// Action 是 NextAction 从工作区事实推导出的下一步确定性动作。
-// 持久状态不写会漂移的阶段枚举；下一动作只由工件推导（RFC §6.2）。
+// Action is the next deterministic step NextAction derives from workspace facts.
+// Persistent state never stores a drifting stage enum; the next action comes only from artifacts (RFC §6.2).
 type Action string
 
 const (
@@ -22,27 +22,29 @@ const (
 	ActionDone                 Action = "done"
 )
 
-// Facts 是从工作区读出的、决定下一动作所需的最小事实快照。
-// 把纯决策（NextAction）与 IO（LoadState）分离：NextAction 对同一 Facts 恒定（RFC §20.1）。
+// Facts is the minimal fact snapshot read from the workspace that decides the next action.
+// It separates pure decision (NextAction) from IO (LoadState): NextAction is constant for the same Facts (RFC
+// §20.1).
 type Facts struct {
-	WorkspaceReady   bool // manifest + intent + source 三件套齐备
+	WorkspaceReady   bool // The manifest + intent + source triple is complete
 	Segmented        bool
 	Confirmed        bool
-	ExpectedChapters int // 切分确认的章节总数（阶段二起填充）
-	AnalyzedChapters int // 从第 1 章起连续、InputDigest 匹配的分析数（阶段三起填充）
+	ExpectedChapters int // Total chapters confirmed by segmentation (filled from stage two on)
+	AnalyzedChapters int // Count of analyses contiguous from chapter 1 with a matching InputDigest (filled from stage three on)
 	Synthesized      bool
 	StoryUncertain   bool
 	StoryResolved    bool
-	Published        bool // 正式工件与 synthesis 完全一致（阶段五起填充）
+	Published        bool // Formal artefacts match synthesis exactly (filled from stage five on)
 }
 
-// NextAction 沿固定线性管线，返回第一份缺失或未满足的动作。纯函数，无 IO。
+// NextAction walks the fixed linear pipeline and returns the first missing or unsatisfied action. A pure function, no IO.
 func NextAction(f Facts) Action {
 	switch {
 	case f.Published:
-		// 发布是终态：正式库对账已全量一致，工作区只是审计存档。上游工件因
-		// prompt 版本 / 指导升级失鲜不再要求重做——否则版本升级会把已发布的书
-		// 追溯判回半路，Engine 跨重启门禁将其永久锁死。
+		// Publication is terminal: official-store reconciliation already agrees completely and the workspace is
+		// only an audit archive. Stale upstream artifacts from a prompt-version or guidance upgrade are no longer
+		// required to be redone — otherwise a version bump would retroactively push a published book back to
+		// half-done and the Engine's cross-restart gate would lock it permanently.
 		return ActionDone
 	case !f.WorkspaceReady:
 		return ActionIngest
@@ -61,8 +63,8 @@ func NextAction(f Facts) Action {
 	}
 }
 
-// artifactFresh 判定工件存在且其 InputDigest 等于当前应重建的 want；
-// 缺失、解析失败、schema 或 digest 失配都视为不新鲜（需重做）。
+// artifactFresh decides that an artifact exists and its InputDigest equals the want that should be rebuilt now;
+// absent, unparseable, or a schema or digest mismatch all count as not fresh (must be redone).
 func artifactFresh[T any](w *Workspace, rel, want string) (bool, error) {
 	a, err := readArtifact[T](w, rel)
 	if os.IsNotExist(err) {
@@ -74,10 +76,12 @@ func artifactFresh[T any](w *Workspace, rel, want string) (bool, error) {
 	return a.InputDigest == want, nil
 }
 
-// LoadState 从工作区读出当前事实快照（仅工作区，不含正式 Store）。
-// 线性短路：每一步都校验工件 InputDigest 与当前上游可重建的摘要一致，任一步失配即视为该步未完成，
-// 下游事实保持 false，交 NextAction 从此处重做——这才让「改切分/prompt 版本/源」自然失效下游（RFC §6.2/§6.3 / 不变量 1）。
-// Published 由调用方按正式发布对账补齐（统一走 CollectFacts）。
+// LoadState reads the current fact snapshot from the workspace (the workspace only, not the official Store).
+// Linear short-circuit: each step checks the artifact's InputDigest against the digest rebuildable from the current
+// upstream, and a mismatch on any step means that step is unfinished, leaving downstream facts false for
+// NextAction to redo from there — this is what makes "change the segmentation / prompt version / source"
+// invalidate downstream naturally (RFC §6.2/§6.3 / invariant 1).
+// Published is filled in by the caller from official-publication reconciliation (always via CollectFacts).
 func LoadState(w *Workspace) (Facts, error) {
 	var f Facts
 	if !w.Active() {
@@ -88,21 +92,21 @@ func LoadState(w *Workspace) (Facts, error) {
 	}
 	src, err := w.LoadSource()
 	if err != nil {
-		return f, fmt.Errorf("读取导入源快照: %w", err)
+		return f, fmt.Errorf("đọc ảnh chụp nguồn nhập liệu: %w", err)
 	}
 	f.WorkspaceReady = true
 	guidance, err := w.LoadGuidance()
 	if err != nil {
-		return f, fmt.Errorf("读取切分指导: %w", err)
+		return f, fmt.Errorf("đọc hướng dẫn phân tách: %w", err)
 	}
 
-	// segmentation：绑定归一化源 + 用户指导 + 切分 prompt 版本。指导变化（--guide 重识别）自然失效旧切分。
+	// segmentation: binds the normalised source + user guidance + segmentation prompt version. A guidance change (--guide re-identification) invalidates the old segmentation naturally.
 	segArt, err := readArtifact[Segmentation](w, fileSegmentation)
 	if os.IsNotExist(err) {
 		return f, nil
 	}
 	if err != nil {
-		return f, fmt.Errorf("读取切分工件: %w", err)
+		return f, fmt.Errorf("đọc sản phẩm phân tách: %w", err)
 	}
 	if segArt.InputDigest != segmentInputDigest(Digest(src), guidance, segmentPromptVersion) {
 		return f, nil
@@ -111,21 +115,21 @@ func LoadState(w *Workspace) (Facts, error) {
 	seg := &segArt.Payload
 	f.ExpectedChapters = len(seg.Chapters)
 
-	// confirmation：绑定 segmentation 工件原始字节。
+	// confirmation: binds the segmentation artifact's raw bytes.
 	segRaw, err := w.readBytes(fileSegmentation)
 	if err != nil {
-		return f, fmt.Errorf("读取切分工件原文: %w", err)
+		return f, fmt.Errorf("đọc nguyên văn sản phẩm phân tách: %w", err)
 	}
 	confirmed, err := artifactFresh[Confirmation](w, fileConfirmation, Digest(segRaw))
 	if err != nil {
-		return f, fmt.Errorf("读取切分确认: %w", err)
+		return f, fmt.Errorf("đọc xác nhận phân tách: %w", err)
 	}
 	if !confirmed {
 		return f, nil
 	}
 	f.Confirmed = true
 
-	// 逐章分析：逐章 InputDigest 与切分身份/版本/正文匹配的连续数。
+	// Per-chapter analysis: the contiguous count whose per-chapter InputDigest matches the segmentation identity/version/prose.
 	f.AnalyzedChapters, err = analyzedChaptersStrict(w, seg, src, segArt.InputDigest, analyzePromptVersion)
 	if err != nil {
 		return f, err
@@ -134,7 +138,7 @@ func LoadState(w *Workspace) (Facts, error) {
 		return f, nil
 	}
 
-	// synthesis：绑定有序逐章事实。
+	// synthesis: binds the ordered per-chapter facts.
 	facts, err := loadPriorFactsStrict(w, f.ExpectedChapters)
 	if err != nil {
 		return f, err
@@ -144,7 +148,7 @@ func LoadState(w *Workspace) (Facts, error) {
 		return f, nil
 	}
 	if err != nil {
-		return f, fmt.Errorf("读取全书综合工件: %w", err)
+		return f, fmt.Errorf("đọc sản phẩm tổng hợp toàn sách: %w", err)
 	}
 	if synArt.InputDigest != synthesisInputDigest(facts) {
 		return f, nil
@@ -152,29 +156,31 @@ func LoadState(w *Workspace) (Facts, error) {
 	f.Synthesized = true
 	f.StoryUncertain = synArt.Payload.StoryStatus == storyUncertain
 
-	// story resolution：uncertain 时绑定 synthesis 工件原始字节，或由 intent 预选。
+	// story resolution: binds the synthesis artifact's raw bytes when uncertain, or is pre-selected by intent.
 	synRaw, err := w.readBytes(fileSynthesis)
 	if err != nil {
-		return f, fmt.Errorf("读取全书综合工件原文: %w", err)
+		return f, fmt.Errorf("đọc nguyên văn sản phẩm tổng hợp toàn sách: %w", err)
 	}
 	resolved, err := artifactFresh[StoryResolution](w, fileStoryResolve, Digest(synRaw))
 	if err != nil {
-		return f, fmt.Errorf("读取故事状态裁定: %w", err)
+		return f, fmt.Errorf("đọc phán định trạng thái truyện: %w", err)
 	}
 	if resolved {
 		f.StoryResolved = true
 	} else if in, iErr := w.LoadIntent(); iErr != nil {
-		return f, fmt.Errorf("读取导入意图: %w", iErr)
+		return f, fmt.Errorf("đọc ý định nhập liệu: %w", iErr)
 	} else if in.StoryResolution != "" {
 		f.StoryResolved = true
 	}
 	return f, nil
 }
 
-// CollectFacts 组合工作区事实与正式发布对账，是 ResumeStatus/ResumeSummary/runner
-// 的统一事实入口。发布对账的期望章数优先取新鲜切分；切分因 prompt 版本 / 指导升级
-// 而失配时，退回工件里当时确认的章数——已发布书的正式章节正是按那份切分落库的，
-// 用当前版本重算 digest 对账反而对不上任何东西。
+// CollectFacts combines workspace facts with official-publication reconciliation and is the unified fact entry
+// point for ResumeStatus/ResumeSummary/runner.
+// The expected chapter count for publication reconciliation prefers a fresh segmentation; when segmentation has
+// gone stale from a prompt-version or guidance upgrade it falls back to the chapter count confirmed at the time
+// inside the artifact — a published book's official chapters were persisted from exactly that segmentation, so
+// reconciling against a digest recomputed with the current version would match nothing.
 func CollectFacts(st *store.Store, w *Workspace) (Facts, error) {
 	f, err := LoadState(w)
 	if err != nil {
@@ -190,8 +196,10 @@ func CollectFacts(st *store.Store, w *Workspace) (Facts, error) {
 	return f, err
 }
 
-// ResumeStatus 报告是否存在活动导入工作区，以及它是否已彻底完成（含正式发布对账）。
-// 供跨重启 Engine 门禁使用（RFC §12.5）：active && !done 时禁止普通创作流程消费半发布状态。
+// ResumeStatus reports whether an active import workspace exists and whether it is completely finished (including
+// official-publication reconciliation).
+// It serves the cross-restart Engine gate (RFC §12.5): with active && !done the ordinary creation flow is barred
+// from consuming half-published state.
 func ResumeStatus(st *store.Store) (active, done bool, err error) {
 	w := OpenWorkspace(st.Dir())
 	if !w.Active() {
@@ -204,8 +212,10 @@ func ResumeStatus(st *store.Store) (active, done bool, err error) {
 	return true, NextAction(f) == ActionDone, nil
 }
 
-// ResumeSummary 生成未完成导入的一行提示（RFC §18.2）；无未完成导入返回空串。
-// 供宿主在启动/欢迎界面主动告知，避免用户只有在创作被门禁拒绝时才发现这本书停在导入半路。
+// ResumeSummary generates a one-line hint about an unfinished import (RFC §18.2); it returns an empty string when
+// there is none.
+// It lets the host tell the user proactively on startup / the welcome screen, so they do not only discover a book
+// stuck mid-import when the creation gate refuses them.
 func ResumeSummary(st *store.Store) string {
 	w := OpenWorkspace(st.Dir())
 	if !w.Active() {
@@ -213,51 +223,52 @@ func ResumeSummary(st *store.Store) string {
 	}
 	f, err := CollectFacts(st, w)
 	if err != nil {
-		return "发现导入状态读取异常：" + err.Error() + "；请运行 /import 查看并修复"
+		return "Phát hiện lỗi khi đọc trạng thái nhập liệu: " + err.Error() + "; hãy chạy /import để xem và sửa"
 	}
 	var state string
 	switch NextAction(f) {
 	case ActionDone:
 		return ""
 	case ActionIngest, ActionSegment:
-		state = "尚未完成切分"
+		state = "chưa hoàn tất phân tách"
 	case ActionAwaitConfirmation:
-		state = fmt.Sprintf("已切分 %d 章，等待核对确认", f.ExpectedChapters)
+		state = fmt.Sprintf("đã phân tách %d chương, chờ kiểm tra xác nhận", f.ExpectedChapters)
 	case ActionAnalyze:
-		state = fmt.Sprintf("已分析 %d/%d 章", f.AnalyzedChapters, f.ExpectedChapters)
+		state = fmt.Sprintf("đã phân tích %d/%d chương", f.AnalyzedChapters, f.ExpectedChapters)
 	case ActionSynthesize:
-		state = "逐章分析完成，待全书综合"
+		state = "phân tích từng chương xong, chờ tổng hợp toàn sách"
 	case ActionAwaitStoryResolution:
-		state = "待明确故事状态（--story=open|closed）"
+		state = "chờ xác định trạng thái truyện (--story=open|closed)"
 	case ActionPublish:
-		state = "综合完成，待发布正式状态"
+		state = "tổng hợp xong, chờ phát hành trạng thái chính thức"
 	}
-	return "发现未完成的导入（" + state + "），输入 /import 从断点恢复"
+	return "Phát hiện lần nhập liệu chưa hoàn tất (" + state + "), nhập /import để khôi phục từ điểm dừng"
 }
 
-// checkImportPreconditions 校验新导入前置条件（RFC §12.1）：
-// 没有既有作品信息、已完成章节和在途 PendingCommit。已有小说与新外部文本的合并语义不清楚，第一版明确拒绝。
+// checkImportPreconditions validates the preconditions for a new import (RFC §12.1): no existing work information,
+// no completed chapters and no in-flight PendingCommit. The merge semantics of an existing novel with new external
+// text are unclear, so the first version refuses outright.
 func checkImportPreconditions(st *store.Store) error {
 	book, err := st.Book.Load()
 	if err != nil {
-		return fmt.Errorf("读取作品信息：%w", err)
+		return fmt.Errorf("đọc thông tin tác phẩm: %w", err)
 	}
 	if book != nil {
-		return fmt.Errorf("已有作品《%s》，拒绝把外部小说并入非空书籍", book.Title)
+		return fmt.Errorf("đã có tác phẩm 《%s》, từ chối gộp tiểu thuyết bên ngoài vào một cuốn sách không rỗng", book.Title)
 	}
 	prog, err := st.Progress.Load()
 	if err != nil {
-		return fmt.Errorf("读取进度：%w", err)
+		return fmt.Errorf("đọc tiến độ: %w", err)
 	}
 	if prog != nil && len(prog.CompletedChapters) > 0 {
-		return fmt.Errorf("已有 %d 个完成章节，拒绝把外部小说并入非空书籍", len(prog.CompletedChapters))
+		return fmt.Errorf("đã có %d chương hoàn thành, từ chối gộp tiểu thuyết bên ngoài vào một cuốn sách không rỗng", len(prog.CompletedChapters))
 	}
 	pending, err := st.Signals.LoadPendingCommit()
 	if err != nil {
-		return fmt.Errorf("读取在途提交：%w", err)
+		return fmt.Errorf("đọc bản commit đang dang dở: %w", err)
 	}
 	if pending != nil {
-		return fmt.Errorf("存在在途章节提交，请先完成或清理后再导入")
+		return fmt.Errorf("đang có bản commit chương dang dở, hãy hoàn tất hoặc dọn sạch rồi mới nhập")
 	}
 	return nil
 }

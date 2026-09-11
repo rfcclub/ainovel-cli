@@ -1,77 +1,77 @@
 package diag
 
-// Severity 表示发现的严重程度。
+// Severity is a finding's severity.
 type Severity string
 
 const (
-	SevCritical Severity = "critical" // 阻塞进度或数据损坏
-	SevWarning  Severity = "warning"  // 可能降低质量或浪费 token
-	SevInfo     Severity = "info"     // 可优化项
+	SevCritical Severity = "critical" // Blocks progress or corrupts data
+	SevWarning  Severity = "warning"  // May reduce quality or waste tokens
+	SevInfo     Severity = "info"     // Optimisation opportunity
 )
 
-// Category 将发现按维度分组。
+// Category groups findings by dimension.
 type Category string
 
 const (
-	CatFlow     Category = "flow"     // 流程卡顿、状态异常、恢复问题
-	CatQuality  Category = "quality"  // 评审评分、合同履约、一致性
-	CatPlanning Category = "planning" // 大纲缺口、伏笔漂移、指南针过时
-	CatContext  Category = "context"  // 角色/时间线/关系异常
+	CatFlow     Category = "flow"     // Flow stalls, state anomalies, recovery problems
+	CatQuality  Category = "quality"  // Review scores, contract fulfilment, consistency
+	CatPlanning Category = "planning" // Outline gaps, foreshadow drift, stale compass
+	CatContext  Category = "context"  // Character/timeline/relationship anomalies
 )
 
-// Confidence 表示规则判定的置信度。
+// Confidence is the confidence of a rule's judgement.
 type Confidence string
 
 const (
-	ConfHigh   Confidence = "high"   // 确定性强，可信赖
-	ConfMedium Confidence = "medium" // 启发式判断，可能有误判
-	ConfLow    Confidence = "low"    // 粗略信号，仅供参考
+	ConfHigh   Confidence = "high"   // Strong certainty, trustworthy
+	ConfMedium Confidence = "medium" // Heuristic judgement, may misjudge
+	ConfLow    Confidence = "low"    // Coarse signal, informational only
 )
 
-// AutoLevel 表示 Finding 是否可以转为自动化动作。
+// AutoLevel indicates whether a Finding may become an automated action.
 type AutoLevel string
 
 const (
-	AutoNone    AutoLevel = "none"    // 仅报告，不自动
-	AutoSuggest AutoLevel = "suggest" // 建议动作但需人工确认
-	AutoSafe    AutoLevel = "safe"    // 可安全自动执行
+	AutoNone    AutoLevel = "none"    // Report only, never automatic
+	AutoSuggest AutoLevel = "suggest" // Suggests an action but needs human confirmation
+	AutoSafe    AutoLevel = "safe"    // Safe to run automatically
 )
 
-// Finding 是一条可执行的诊断结果。
+// Finding is one actionable diagnostic result.
 type Finding struct {
-	Rule       string     // 规则名，如 "StaleForeshadow"
-	Category   Category   // 分类
-	Severity   Severity   // 严重程度
-	Confidence Confidence // 判定置信度
-	AutoLevel  AutoLevel  // 自动化级别
-	Target     string     // 建议作用面，如 "runtime.flow"
-	Title      string     // 一行摘要
-	Evidence   string     // 具体数据证据
-	Suggestion string     // 改进建议（指向 prompt/flow/config）
+	Rule       string     // Rule name, e.g. "StaleForeshadow"
+	Category   Category   // Category
+	Severity   Severity   // Severity
+	Confidence Confidence // Judgement confidence
+	AutoLevel  AutoLevel  // Automation level
+	Target     string     // Suggested scope, e.g. "runtime.flow"
+	Title      string     // One-line summary
+	Evidence   string     // Concrete data evidence
+	Suggestion string     // Improvement suggestion (points at prompt/flow/config)
 }
 
-// RuleFunc 是诊断规则的统一签名。
+// RuleFunc is the uniform signature of a diagnostic rule.
 type RuleFunc func(snap *Snapshot) []Finding
 
-// ActionKind 表示诊断动作的类型。
+// ActionKind is the type of a diagnostic action.
 type ActionKind string
 
 const (
-	ActionEmitNotice      ActionKind = "emit_notice"       // 发系统提示
-	ActionEnqueueFollowUp ActionKind = "enqueue_follow_up" // 生成后续处理建议
+	ActionEmitNotice      ActionKind = "emit_notice"       // Emit a system notice
+	ActionEnqueueFollowUp ActionKind = "enqueue_follow_up" // Generate a follow-up handling suggestion
 )
 
-// Action 是 Planner 根据高置信 Finding 生成的可执行动作。
+// Action is an executable action the Planner generates from a high-confidence Finding.
 type Action struct {
-	SourceRule  string     // 来源规则名
-	Kind        ActionKind // 动作类型
-	Severity    Severity   // 继承自 Finding
-	Summary     string     // 简短描述
-	Message     string     // 传递给控制流的消息
-	Fingerprint string     // 来源 Finding 的稳定指纹，用于运行时去重
+	SourceRule  string     // Source rule name
+	Kind        ActionKind // Action kind
+	Severity    Severity   // Inherited from Finding
+	Summary     string     // Short description
+	Message     string     // Message passed to the control flow
+	Fingerprint string     // Stable fingerprint of the source Finding, used for runtime dedupe
 }
 
-// Stats 是与发现并列展示的概览指标。
+// Stats are the overview metrics displayed alongside the findings.
 type Stats struct {
 	CompletedChapters int
 	TotalChapters     int
@@ -87,7 +87,7 @@ type Stats struct {
 	ForeshadowStale   int
 }
 
-// Report 是一次诊断运行的完整输出。
+// Report is the complete output of one diagnostic run.
 type Report struct {
 	Stats    Stats
 	Findings []Finding

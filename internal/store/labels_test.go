@@ -37,22 +37,8 @@ func TestRenderersFollowLanguage(t *testing.T) {
 		}
 	}
 
-	// Chế độ tiếng Trung phải giữ nguyên hành vi cũ.
-	zh := renderOutline(entries, labelsZH)
-	if !strings.Contains(zh, "# 大纲") || !strings.Contains(zh, "## 第 1 章：") {
-		t.Errorf("chế độ zh bị đổi: %q", zh)
-	}
-}
-
-func TestSetLanguageReachesEveryStore(t *testing.T) {
-	s := NewStore(t.TempDir())
-	s.SetLanguage("vi")
-	for i, x := range s.ios {
-		if x.lang != "vi" {
-			t.Fatalf("IO thứ %d chưa được đặt ngôn ngữ", i)
-		}
-	}
-	if len(s.ios) < 15 {
-		t.Fatalf("chỉ gom được %d IO, nghi sót store", len(s.ios))
+	// The outline renderer must never emit Chinese labels: no language branch exists.
+	if zh := renderOutline(entries, labelsVI); strings.Contains(zh, "大纲") || strings.Contains(zh, "第 1 章") {
+		t.Errorf("bản render lọt nhãn tiếng Trung: %q", zh)
 	}
 }

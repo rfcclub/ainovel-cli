@@ -16,7 +16,7 @@ func TestBuildWriterPrompt_AssemblesProperly(t *testing.T) {
 	}
 
 	const style = "## Phong cách kiếm hiệp\n\n- Văn phong cổ điển"
-	got := BuildWriterPrompt(WithSimulationGuidance(protocol, "writer", "vi"), voice, style)
+	got := BuildWriterPrompt(WithSimulationGuidance(protocol, "writer"), voice, style)
 	if !strings.Contains(got, voice) {
 		t.Fatal("BuildWriterPrompt phải chèn nội dung voice vào đúng vị trí")
 	}
@@ -28,7 +28,7 @@ func TestBuildWriterPrompt_AssemblesProperly(t *testing.T) {
 	}
 }
 
-// TestLoad_NoOverrides 零覆盖时 Voice/AntiAITone 与内置逐字节一致。
+// TestLoad_NoOverrides: with zero overrides, Voice/AntiAITone match the built-ins byte for byte.
 func TestLoad_NoOverrides(t *testing.T) {
 	b := Load("default", LoadOptions{})
 	if b.Voice != mustRead(voiceFS, "voice.md") {
@@ -43,23 +43,16 @@ func TestLoad_NoOverrides(t *testing.T) {
 }
 
 func TestInterventionPromptsKeepScopeContract(t *testing.T) {
-	promptsVI := loadPrompts("vi")
+	prompts := loadPrompts()
 	for _, phrase := range []string{"ngữ cảnh không đồng nghĩa với ủy quyền sửa đổi", "phạm vi tối thiểu đủ dùng", "phạm vi phân tích không đồng nghĩa với phạm vi sửa đổi"} {
-		if !strings.Contains(promptsVI.ArbiterIntervention, phrase) {
-			t.Fatalf("Arbiter can thiệp tiếng Việt thiếu ràng buộc phạm vi: %q", phrase)
-		}
-	}
-
-	promptsZH := loadPrompts("zh")
-	for _, phrase := range []string{"上下文不等于修改授权", "最小充分范围", "分析范围不等于修改范围"} {
-		if !strings.Contains(promptsZH.ArbiterIntervention, phrase) {
-			t.Fatalf("Arbiter can thiệp tiếng Trung thiếu ràng buộc phạm vi: %q", phrase)
+		if !strings.Contains(prompts.ArbiterIntervention, phrase) {
+			t.Fatalf("Arbiter can thiệp thiếu ràng buộc phạm vi: %q", phrase)
 		}
 	}
 }
 
 func TestStructuredArbiterPromptsContainOnlySemantics(t *testing.T) {
-	prompts := loadPrompts("vi")
+	prompts := loadPrompts()
 	for name, prompt := range map[string]string{
 		"plan_start": prompts.ArbiterPlanStart,
 		"failure":    prompts.ArbiterFailure,

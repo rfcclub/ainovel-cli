@@ -101,7 +101,9 @@ func runWithConfig(cfg bootstrap.Config, opts cliOptions, args []string) {
 	}
 
 	cfg.FillDefaults()
-	bundle := assets.LoadWithLanguage(cfg.NormalizedLanguage(), cfg.Style, assets.DefaultLoadOptions(cfg.OutputDir))
+	loadOpts := assets.DefaultLoadOptions(cfg.OutputDir)
+	loadOpts.ContentRating = cfg.ContentRating
+	bundle := assets.Load(cfg.Style, loadOpts)
 	if opts.Headless {
 		prompt, err := loadPrompt(opts)
 		if err != nil {

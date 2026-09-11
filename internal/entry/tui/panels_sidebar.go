@@ -118,7 +118,7 @@ func renderAgentLine(agent host.AgentSnapshot, width int) string {
 	if agent.Tool != "" {
 		detail = agent.Tool
 	}
-	if agent.State == "idle" && (detail == "待命" || detail == "Chờ lệnh") {
+	if agent.State == "idle" && (detail == "Chờ lệnh" || detail == "Đang chờ") {
 		detail = ""
 	}
 	if detail != "" && detail != taskLine {

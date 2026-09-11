@@ -17,7 +17,7 @@ import (
 	storepkg "github.com/voocel/ainovel-cli/internal/store"
 )
 
-// scriptedModel 按调用序号返回预设文本。
+// scriptedModel returns preset text by call index.
 type scriptedModel struct {
 	outputs        []string
 	idx            int64
@@ -124,7 +124,7 @@ func (m *failingThenValidModel) GenerateStream(context.Context, []agentcore.Mess
 func (m *failingThenValidModel) SupportsTools() bool { return true }
 
 func TestDecidePlanStart_ValidAndFeedbackRetry(t *testing.T) {
-	// 第一次输出非法(planner 错),第二次带围栏但合法——反馈重试 + JSON 提取都要工作。
+	// The first output is invalid (wrong planner) and the second is fenced but valid — both feedback retry and JSON extraction must work.
 	m := &scriptedModel{outputs: []string{
 		`{"planner":"writer","task":"x","reason":"r"}`,
 		"```json\n{\"planner\":\"architect_short\",\"task\":\"写一个 20 章的悬疑短篇……\",\"reason\":\"用户显式要求短篇\"}\n```",
@@ -321,8 +321,9 @@ func TestCollectInterventionFacts(t *testing.T) {
 		t.Fatal("新书应有基础设定缺项")
 	}
 
-	// /reopen 是可枚举事实，必须进 facts：重开后的书章数已写满，缺了它模型会
-	// 据 completed=total 推断"已完结"、无视 phase=writing（实测事故）。
+	// /reopen is an enumerable fact and must enter facts: a reopened book has its chapter count filled
+	// in, and without it the model infers "already complete" from completed=total and ignores
+	// phase=writing (a measured incident).
 	if err := st.Progress.UpdatePhase(domain.PhaseWriting); err != nil {
 		t.Fatalf("phase: %v", err)
 	}
@@ -397,7 +398,7 @@ func TestExtractJSON(t *testing.T) {
 	}
 }
 
-// nativeModel 声明支持原生 JSON Schema 的模型:decide 应走 native 分支。
+// nativeModel is a model declared to support native JSON Schema: decide should take the native branch.
 type nativeModel struct {
 	*scriptedModel
 	stop agentcore.StopReason
@@ -419,7 +420,7 @@ func (m *nativeModel) Generate(ctx context.Context, msgs []agentcore.Message, to
 	return resp, err
 }
 
-// 契约测试(RFC §11.1):根为 object、全属性(含嵌套)required、dispatch 为可空对象。
+// Contract test (RFC §11.1): the root is an object, every property (including nested ones) is required, and dispatch is a nullable object.
 func TestContractSchemasAreStrictReady(t *testing.T) {
 	for _, c := range []llmcontract.Contract{planStartContract, failureContract, interventionContract} {
 		if c.Schema["type"] != "object" {
@@ -467,13 +468,13 @@ func TestDecideNativeSendsSchemaAndDecodesFullOutput(t *testing.T) {
 	}
 }
 
-// native 模式下解码失败=provider 契约违约:立即报错,不走 extractJSON 兜底、不重问。
+// Under native mode a decode failure is a provider contract breach: error out at once, with no extractJSON fallback and no re-ask.
 func TestDecideNativeFencedOutputIsContractViolation(t *testing.T) {
 	m := &nativeModel{scriptedModel: &scriptedModel{outputs: []string{
 		"```json\n{\"planner\":\"architect_short\",\"task\":\"x\",\"reason\":\"y\"}\n```",
 	}}}
 	_, err := DecidePlanStart(t.Context(), m, "sys", "写一部短篇", "")
-	if err == nil || !strings.Contains(err.Error(), "契约违约") {
+	if err == nil || !strings.Contains(err.Error(), "vi phạm contract") {
 		t.Fatalf("期望契约违约错误, got %v", err)
 	}
 	if m.idx != 1 {
@@ -481,7 +482,7 @@ func TestDecideNativeFencedOutputIsContractViolation(t *testing.T) {
 	}
 }
 
-// native 模式业务校验失败仍反馈重问,且重问请求保留 schema。
+// Under native mode a business-validation failure still feeds back and re-asks, and the re-ask request keeps the schema.
 func TestDecideNativeValidateFailureFeedbackKeepsSchema(t *testing.T) {
 	m := &nativeModel{scriptedModel: &scriptedModel{outputs: []string{
 		`{"action":"reroute","dispatch":null,"reason":"需要换路"}`,
@@ -499,7 +500,7 @@ func TestDecideNativeValidateFailureFeedbackKeepsSchema(t *testing.T) {
 	}
 }
 
-// native 模式先分类终止原因:截断/拒答/空响应是独立错误事实,不进重问循环。
+// Native mode classifies the termination reason first: truncation / refusal / empty response are independent error facts and do not enter the re-ask loop.
 func TestDecideNativeStopReasonClassification(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -507,9 +508,9 @@ func TestDecideNativeStopReasonClassification(t *testing.T) {
 		stop    agentcore.StopReason
 		wantErr string
 	}{
-		{"length 截断", `{"planner":`, agentcore.StopReasonLength, "截断"},
-		{"safety 拒答", `无法协助`, agentcore.StopReasonSafety, "拒答"},
-		{"空响应", ``, agentcore.StopReasonStop, "空内容"},
+		{"length cắt do độ dài", `{"planner":`, agentcore.StopReasonLength, "bị cắt do độ dài"},
+		{"safety từ chối", `无法协助`, agentcore.StopReasonSafety, "từ chối trả lời"},
+		{"phản hồi rỗng", ``, agentcore.StopReasonStop, "nội dung rỗng"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -525,7 +526,7 @@ func TestDecideNativeStopReasonClassification(t *testing.T) {
 	}
 }
 
-// marshalPayload 失败必须暴露:静默伪造 {} 会让模型基于假事实误判。
+// A marshalPayload failure must surface: silently fabricating {} would make the model misjudge from false facts.
 func TestMarshalPayloadErrors(t *testing.T) {
 	if _, err := marshalPayload(func() {}); err == nil {
 		t.Fatal("不可序列化载荷应报错")

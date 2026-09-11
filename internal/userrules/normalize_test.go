@@ -75,7 +75,7 @@ func TestParseNormalizerJSON_FullOutput(t *testing.T) {
 	}
 }
 
-// fatigue 条目校验：空词与非正整数阈值都是可反馈修正的业务错误。
+// fatigue entry validation: an empty word and a non-positive threshold are both business errors the model can be told to fix.
 func TestToCandidateRejectsInvalidFatigueEntries(t *testing.T) {
 	bad := normalizerOutput{Structured: normalizerStructured{
 		FatigueWords: []fatigueWordEntry{{Word: " ", MaxPerChapter: 2}},
@@ -100,7 +100,7 @@ func TestParseNormalizerJSON_GarbageFails(t *testing.T) {
 	}
 }
 
-// 契约测试(RFC §11.1):根为 object、全属性(含嵌套 structured/fatigue_words 条目)required。
+// Contract test (RFC §11.1): the root is an object and every property (including nested structured/fatigue_words entries) is required.
 func TestNormalizeContractIsStrictReady(t *testing.T) {
 	if normalizeContract.Schema["type"] != "object" {
 		t.Fatal("根必须是 object")
@@ -111,15 +111,16 @@ func TestNormalizeContractIsStrictReady(t *testing.T) {
 }
 
 func TestNormalize_NilModelErrors(t *testing.T) {
-	// 无模型可用：返回明确错误，由 Service 层降级为 raw preferences。
+	// No model available: return an explicit error and let the Service layer degrade to raw preferences.
 	var n *Normalizer = NewNormalizer(nil)
 	if _, err := n.Normalize(t.Context(), "startup_prompt", "每章1200字，主角冷静"); err == nil {
 		t.Fatal("无模型应返回错误")
 	}
 }
 
-// scriptedModel 是最小 fake ChatModel：按调用次序吐预设回复，并记录最后一轮收到的
-// messages，供断言反馈式重试是否把纠正提示并入了下一轮对话。回复用尽后重复最后一条。
+// scriptedModel is a minimal fake ChatModel: it emits preset replies in call order and records the
+// messages received in the last round, so a test can assert whether a feedback retry merged the
+// correction into the next round's conversation. Replies repeat the last one once exhausted.
 type scriptedModel struct {
 	replies  []string
 	calls    int
@@ -160,8 +161,9 @@ func (m *scriptedModel) GenerateStream(context.Context, []agentcore.Message, []a
 
 func (m *scriptedModel) SupportsTools() bool { return false }
 
-// 反馈式重试：首轮吐坏 JSON、次轮才合法。Normalize 应成功，且次轮对话里带上了上一轮的
-// 坏输出与纠正提示（反馈式，而非原样盲重试）。
+// Feedback-style retry: the first round emits bad JSON, the second is valid. Normalize
+// must succeed and the second round must carry the previous bad output plus the
+// correction hint (feedback, not a blind retry of the same request).
 func TestNormalize_FeedbackRetryRecovers(t *testing.T) {
 	model := &scriptedModel{replies: []string{
 		"这不是 JSON",
@@ -186,7 +188,7 @@ func TestNormalize_FeedbackRetryRecovers(t *testing.T) {
 		if text == "这不是 JSON" {
 			sawBad = true
 		}
-		if strings.Contains(text, "JSON Schema") && strings.Contains(text, "错误：") {
+		if strings.Contains(text, "JSON Schema") && strings.Contains(text, "Lỗi:") {
 			sawHint = true
 		}
 	}
@@ -199,7 +201,7 @@ func TestNormalize_FeedbackRetryRecovers(t *testing.T) {
 	}
 }
 
-// 归一化不覆盖模型的 thinking 默认；普通 chat 模型会拒绝显式 off。
+// Normalisation does not override the model's thinking default; an ordinary chat model rejects an explicit off.
 func TestNormalize_LeavesThinkingUnspecifiedAndReservesTokens(t *testing.T) {
 	model := &scriptedModel{replies: []string{`{"structured":{"genre":"","forbidden_chars":[],"forbidden_phrases":[],"fatigue_words":[]},"preferences":"x","uncertain":[]}`}}
 	n := NewNormalizer(model)
@@ -215,7 +217,7 @@ func TestNormalize_LeavesThinkingUnspecifiedAndReservesTokens(t *testing.T) {
 	}
 }
 
-// 全程坏 JSON：没有固定次数上限，持续反馈重问，直到 context 取消。
+// Bad JSON throughout: there is no fixed attempt cap; it keeps feeding back and re-asking until the context is cancelled.
 func TestNormalize_FeedbackRetryContinuesUntilContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	model := &scriptedModel{replies: []string{"坏"}, cancel: cancel, cancelAt: 4}
@@ -241,7 +243,7 @@ func (retryableTestError) Error() string             { return "provider unavaila
 func (retryableTestError) Retryable() bool           { return true }
 func (retryableTestError) RetryAfter() time.Duration { return time.Millisecond }
 
-// 终止错误（401 等）不得盲重试：恰好 1 次调用即返回错误。
+// A terminal error (401 and the like) must not be retried blindly: exactly one call then an error.
 func TestNormalize_TerminalErrorStopsImmediately(t *testing.T) {
 	model := &scriptedModel{err: terminalTestError{}}
 	n := NewNormalizer(model)
@@ -255,7 +257,7 @@ func TestNormalize_TerminalErrorStopsImmediately(t *testing.T) {
 	}
 }
 
-// retryable 请求错误由 llmretry 退避重试。
+// A retryable request error is retried with backoff by llmretry.
 type flakyModel struct {
 	scriptedModel
 	failures int
@@ -281,7 +283,7 @@ func TestNormalize_RetryableErrorRecovers(t *testing.T) {
 	}
 }
 
-// nativeRulesModel 声明支持原生 JSON Schema。
+// nativeRulesModel is declared to support native JSON Schema.
 type nativeRulesModel struct {
 	*scriptedModel
 }
@@ -295,7 +297,7 @@ func (m *nativeRulesModel) Capabilities() llm.Capabilities {
 }
 
 func TestNormalize_NativeSendsSchemaAndRejectsFences(t *testing.T) {
-	// 原生模式：schema 进请求；裸 JSON 成功。
+	// Native mode: the schema goes in the request and bare JSON succeeds.
 	model := &nativeRulesModel{&scriptedModel{replies: []string{
 		`{"structured":{"genre":"","forbidden_chars":[],"forbidden_phrases":[],"fatigue_words":[]},"preferences":"x","uncertain":[]}`,
 	}}}
@@ -312,13 +314,13 @@ func TestNormalize_NativeSendsSchemaAndRejectsFences(t *testing.T) {
 		t.Fatalf("native 模式不应向提示词重复注入 schema:\n%s", got)
 	}
 
-	// 围栏输出=契约违约：立即报错，不走 extractJSON、不重问。
+	// Fenced output = contract breach: error at once, with no extractJSON fallback and no re-ask.
 	fenced := &nativeRulesModel{&scriptedModel{replies: []string{
 		"```json\n{\"structured\":{},\"preferences\":\"x\",\"uncertain\":[]}\n```",
 	}}}
 	n = NewNormalizer(fenced)
 	_, err = n.Normalize(t.Context(), "startup_prompt", "规则")
-	if err == nil || !strings.Contains(err.Error(), "契约违约") {
+	if err == nil || !strings.Contains(err.Error(), "vi phạm contract") {
 		t.Fatalf("期望契约违约错误, got %v", err)
 	}
 	if fenced.calls != 1 {

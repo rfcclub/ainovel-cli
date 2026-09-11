@@ -74,16 +74,6 @@ func ProviderPresets() []ProviderPreset {
 	return out
 }
 
-type setupLanguageOption struct {
-	code  string
-	label string
-}
-
-var languageOptions = []setupLanguageOption{
-	{code: "vi", label: "Tiếng Việt (Mặc định - Sáng tác văn phong Việt tự nhiên)"},
-	{code: "zh", label: "Tiếng Trung (Nguyên bản - Sáng tác bằng Tiếng Trung)"},
-}
-
 // RunSetup chạy trình hướng dẫn thiết lập lần đầu và trả về cấu hình tạo được.
 func RunSetup() (Config, error) {
 	fmt.Fprintln(os.Stderr)
@@ -93,14 +83,7 @@ func RunSetup() (Config, error) {
 	fmt.Fprintf(os.Stderr, "  Sau khi hoàn tất, bạn có thể chỉnh sửa tệp này để tùy biến nâng cao.\n")
 	fmt.Fprintln(os.Stderr)
 
-	// Step 1: Chọn Ngôn ngữ Sáng tác Truyện
-	selectedLang, err := runLanguageSelect()
-	if err != nil {
-		return Config{}, err
-	}
-	printStepDone("Ngôn ngữ sáng tác", selectedLang.label)
-
-	// Step 2: Chọn Nhà cung cấp AI (Provider)
+	// Step 1: Chọn Nhà cung cấp AI (Provider)
 	sp, err := runProviderSelect()
 	if err != nil {
 		return Config{}, err
@@ -126,9 +109,9 @@ func RunSetup() (Config, error) {
 	// Step 3: Nhập API Key
 	var apiKey string
 	if sp.apiKeyOptional {
-		apiKey, err = runOptionalTextInput("[3/5] API Key (Nhấn Enter để bỏ qua nếu dùng Ollama/Local)", "Để trống nếu không cần API Key")
+		apiKey, err = runOptionalTextInput("[2/4] API Key (Nhấn Enter để bỏ qua nếu dùng Ollama/Local)", "Để trống nếu không cần API Key")
 	} else {
-		apiKey, err = runTextInput("[3/5] API Key", "sk-xxx...")
+		apiKey, err = runTextInput("[2/4] API Key", "sk-xxx...")
 	}
 	if err != nil {
 		return Config{}, err
@@ -146,7 +129,7 @@ func RunSetup() (Config, error) {
 	if baseDefault != "" {
 		baseHint = baseDefault
 	}
-	baseURL, err := runTextInputWithDefault("[4/5] Base URL (Nhấn Enter để dùng địa chỉ mặc định, hoặc nhập địa chỉ proxy/Ollama)", baseHint, baseDefault)
+	baseURL, err := runTextInputWithDefault("[3/4] Base URL (Nhấn Enter để dùng địa chỉ mặc định, hoặc nhập địa chỉ proxy/Ollama)", baseHint, baseDefault)
 	if err != nil {
 		return Config{}, err
 	}
@@ -162,7 +145,7 @@ func RunSetup() (Config, error) {
 	if providerName == "ollama" {
 		modelPlaceholder = "Ví dụ: qwen2.5:14b / ainovel-qwen / qwen3:14b"
 	}
-	modelName, err := runTextInput("[5/5] Tên Model chính", modelPlaceholder)
+	modelName, err := runTextInput("[4/4] Tên Model chính", modelPlaceholder)
 	if err != nil {
 		return Config{}, err
 	}
@@ -175,7 +158,6 @@ func RunSetup() (Config, error) {
 		Providers: map[string]ProviderConfig{providerName: pc},
 		Roles:     map[string]RoleConfig{},
 		Style:     "default",
-		Language:  selectedLang.code,
 	}
 
 	// Lưu cấu hình
@@ -192,7 +174,6 @@ func RunSetup() (Config, error) {
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "%s Cấu hình đã được lưu tại: %s\n",
 		lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Render("✓"), path)
-	fmt.Fprintf(os.Stderr, "  Ngôn ngữ truyện: %s\n", selectedLang.label)
 	fmt.Fprintf(os.Stderr, "  Provider mặc định: %s\n", providerName)
 	fmt.Fprintf(os.Stderr, "  Model mặc định: %s\n", modelName)
 	fmt.Fprintln(os.Stderr, "  Bạn có thể dùng lệnh /config hoặc /model trong TUI để thay đổi bất cứ lúc nào.")
@@ -229,30 +210,9 @@ func maskKey(key string) string {
 
 // ---------- TUI Components ----------
 
-func runLanguageSelect() (setupLanguageOption, error) {
-	items := make([]setupProvider, len(languageOptions))
-	for i, opt := range languageOptions {
-		items[i] = setupProvider{name: opt.code, label: opt.label}
-	}
-	m := setupSelectModel{
-		title: "[1/5] Chọn Ngôn Ngữ Sáng Tác Nội Dung Truyện (Giao diện luôn là Tiếng Việt)",
-		items: items,
-	}
-	p := tea.NewProgram(m, tea.WithOutput(os.Stderr))
-	final, err := p.Run()
-	if err != nil {
-		return setupLanguageOption{}, err
-	}
-	result := final.(setupSelectModel)
-	if result.cancelled {
-		return setupLanguageOption{}, fmt.Errorf("đã hủy khởi tạo")
-	}
-	return languageOptions[result.cursor], nil
-}
-
 func runProviderSelect() (setupProvider, error) {
 	m := setupSelectModel{
-		title: "[2/5] Chọn Nhà Cung Cấp AI (Provider)",
+		title: "[1/4] Chọn Nhà Cung Cấp AI (Provider)",
 		items: setupProviders,
 	}
 	p := tea.NewProgram(m, tea.WithOutput(os.Stderr))

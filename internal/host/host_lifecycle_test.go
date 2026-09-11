@@ -17,7 +17,7 @@ func TestUpgradeProjectMigratesLegacyBook(t *testing.T) {
 	if err := st.Init(); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	premise := "# 《寿元账》\n\n## 核心冲突\n\n凡人以寿元换取灵性，在求生与守住人性之间挣扎。\n\n## 主角目标\n\n活下去。"
+	premise := "# 《寿元账》\n\n## Xung đột cốt lõi\n\n凡人以寿元换取灵性，在求生与守住人性之间挣扎。\n\n## 主角目标\n\n活下去。"
 	if err := st.Outline.SavePremise(premise); err != nil {
 		t.Fatalf("SavePremise: %v", err)
 	}
@@ -59,13 +59,13 @@ func TestInterventionStopsWhenPersistenceFails(t *testing.T) {
 	}
 	h := &Host{store: st, events: make(chan Event, 4)}
 	err := h.doIntervention("修改主角性格", false)
-	if err == nil || !strings.Contains(err.Error(), "持久化失败") {
+	if err == nil || !strings.Contains(err.Error(), "lưu can thiệp thất bại") {
 		t.Fatalf("expected persistence error, got %v", err)
 	}
-	// 公共 Steer 必须等待异步任务并把同一业务错误返回给 TUI；不能只表示 goroutine
-	// 启动成功，否则界面永远收不到真实失败。
+	// The public Steer must wait for the async task and return the same business error to the TUI; it must
+	// not merely report that the goroutine started, or the interface would never receive a genuine failure.
 	err = h.Steer("修改主角性格")
-	if err == nil || !strings.Contains(err.Error(), "持久化失败") {
+	if err == nil || !strings.Contains(err.Error(), "lưu can thiệp thất bại") {
 		t.Fatalf("Steer should return persistence error, got %v", err)
 	}
 }

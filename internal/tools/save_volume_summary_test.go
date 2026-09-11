@@ -58,7 +58,7 @@ func TestSaveVolumeSummaryRejectsNonDueVolume(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := NewSaveVolumeSummaryTool(s).Execute(context.Background(), args); err == nil || !strings.Contains(err.Error(), "聚合写入目标不匹配") {
+	if _, err := NewSaveVolumeSummaryTool(s).Execute(context.Background(), args); err == nil || !strings.Contains(err.Error(), "Đích ghi tổng hợp không khớp") {
 		t.Fatalf("expected non-due volume rejection, got %v", err)
 	}
 	if summary, err := s.Summaries.LoadVolumeSummary(2); err != nil || summary != nil {
@@ -68,7 +68,7 @@ func TestSaveVolumeSummaryRejectsNonDueVolume(t *testing.T) {
 
 func TestReconcileLayeredCompletionRepairsInterruptedVolumeSummary(t *testing.T) {
 	s := setupVolumeSummaryStore(t)
-	// 模拟进程在卷摘要已经落盘、Progress.MarkComplete 尚未执行时退出。
+	// Simulate the process exiting after the volume summary landed but before Progress.MarkComplete ran.
 	if err := s.Summaries.SaveVolumeSummary(domain.VolumeSummary{Volume: 1, Title: "终卷", Summary: "全书收束", KeyEvents: []string{"终局"}}); err != nil {
 		t.Fatal(err)
 	}

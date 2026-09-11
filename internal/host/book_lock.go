@@ -11,11 +11,13 @@ import (
 
 const bookLockFile = ".ainovel.lock"
 
-// ErrBookInUse 表示同一小说目录已被另一个进程占用。
-var ErrBookInUse = errors.New("小说目录已被另一个 ainovel-cli 实例占用")
+// ErrBookInUse means the same novel directory is already held by another process.
+var ErrBookInUse = errors.New("thư mục tiểu thuyết đã bị một tiến trình ainovel-cli khác chiếm")
 
-// bookLease 在 Host 的完整生命周期内持有小说目录的跨进程独占权。
-// 锁文件会保留在目录中；真正的占用状态由操作系统管理，进程异常退出也会自动释放。
+// bookLease holds cross-process exclusive rights over the novel directory for the Host's entire
+// lifetime.
+// The lock file stays in the directory; the real occupancy state is managed by the operating system and
+// is released automatically even on an abnormal process exit.
 type bookLease struct {
 	lock *flock.Flock
 }
@@ -23,19 +25,19 @@ type bookLease struct {
 func acquireBookLease(dir string) (*bookLease, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, fmt.Errorf("解析小说目录: %w", err)
+		return nil, fmt.Errorf("phân giải thư mục tiểu thuyết: %w", err)
 	}
 	if err := os.MkdirAll(absDir, 0o755); err != nil {
-		return nil, fmt.Errorf("创建小说目录: %w", err)
+		return nil, fmt.Errorf("tạo thư mục tiểu thuyết: %w", err)
 	}
 	fileLock := flock.New(filepath.Join(absDir, bookLockFile), flock.SetPermissions(0o600))
 	locked, err := fileLock.TryLock()
 	if err != nil {
-		return nil, closeBookLockAfterFailure(fileLock, fmt.Errorf("占用小说目录 %q: %w", absDir, err))
+		return nil, closeBookLockAfterFailure(fileLock, fmt.Errorf("chiếm thư mục tiểu thuyết %q: %w", absDir, err))
 	}
 	if !locked {
 		return nil, closeBookLockAfterFailure(fileLock, fmt.Errorf(
-			"%w：%s；请关闭正在操作此目录的另一个终端，或使用不同的小说目录",
+			"%w: %s; hãy đóng terminal khác đang thao tác thư mục này, hoặc dùng thư mục tiểu thuyết khác",
 			ErrBookInUse,
 			absDir,
 		))
@@ -45,7 +47,7 @@ func acquireBookLease(dir string) (*bookLease, error) {
 
 func closeBookLockAfterFailure(fileLock *flock.Flock, cause error) error {
 	if err := fileLock.Close(); err != nil {
-		return errors.Join(cause, fmt.Errorf("关闭小说目录锁: %w", err))
+		return errors.Join(cause, fmt.Errorf("đóng khóa thư mục tiểu thuyết: %w", err))
 	}
 	return cause
 }

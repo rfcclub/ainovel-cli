@@ -1,11 +1,13 @@
 package flow
 
-// Route 状态空间穷举测试。
+// Exhaustive state-space test for Route.
 //
-// expectedInstruction 是决策表的独立镜像（可执行规格，对应 architecture.md 铁律二
-// 的 11 分支优先级），故意不复用实现的任何代码：实现重构后行为若有偏移，这里立刻
-// 红灯；要改变行为必须同时改动规格并留下 diff。router_test.go 的单分支用例负责
-// 可读的意图文档，本文件负责全组合空间下的优先级与守恒性质。
+// expectedInstruction is an independent mirror of the decision table (an executable spec matching the
+// 11-branch priority of architecture.md's second iron law), deliberately reusing none of the
+// implementation's code: if a refactor shifts behaviour, this goes red immediately; changing behaviour
+// requires changing the spec too and leaving a diff. The single-branch cases in router_test.go provide
+// readable intent documentation while this file covers priority and conservation properties over the
+// whole combination space.
 
 import (
 	"reflect"
@@ -15,7 +17,7 @@ import (
 	storepkg "github.com/voocel/ainovel-cli/internal/store"
 )
 
-// expectKind 是规格层面的裁定结果：路由到谁、做什么类别的事。
+// expectKind is the spec-level verdict: who to route to and what class of work to do.
 type expectKind int
 
 const (
@@ -32,17 +34,21 @@ const (
 	expectOutlineFeedback
 )
 
-// expectedInstruction 按架构规格计算某 State 应得的裁定。
-// 优先级（自上而下第一个命中）：
-//  1. Progress 缺失 / Phase 终态 → LLM 裁定（nil）
-//  2. 规划期（非写作期）：设定缺项且规划师可判定（save_foundation 已落过 scale）
-//     → 照缺项续派同一规划师；否则 → LLM 裁定（nil，含首次规划师选型）
-//  3. 重写/打磨队列非空 → writer 按队列头（绝对优先，压过一切弧末事务）
-//  4. Flow=Reviewing / Steering → LLM 裁定（nil）
-//  5. 缺失的聚合工件 → Editor 补建
-//  6. 外部修订对后续规划有影响 → Architect 消费
-//  7. 分层模式弧末 → 评审 → 弧摘要 → (卷末)卷摘要 → 展开下一弧 → 追加新卷
-//  8. 其余 → writer 续写下一章
+// expectedInstruction computes the verdict a State should get under the architecture spec.
+// Priority (the first hit from the top):
+//  1. Progress missing / Phase terminal → LLM verdict (nil)
+//  2. Planning stage (not writing): a foundation item is missing and the planner is identifiable
+//     (save_foundation has already landed scale)
+//     → re-dispatch the same planner for the gap; otherwise → LLM verdict (nil, including the first
+//     planner type choice)
+//  3. Rewrite/polish queue non-empty → the writer takes the queue head (absolute priority, overriding
+//     every arc-end affair)
+//  4. Flow=Reviewing / Steering → LLM verdict (nil)
+//  5. A missing aggregate artifact → Editor fills it in
+//  6. An external revision affects later planning → Architect consumes it
+//  7. Layered arc end → review → arc summary → (volume end) volume summary → expand the next arc →
+//     append a new volume
+//  8. Everything else → the writer continues with the next chapter
 func expectedInstruction(s State) expectKind {
 	p := s.Progress
 	if p == nil || p.Phase == domain.PhaseComplete {
@@ -81,7 +87,7 @@ func expectedInstruction(s State) expectKind {
 			return expectNewVolume
 		}
 	}
-	// 非分层:每 ReviewInterval 章一次全局审阅(未做则先审阅再续写)。
+	// Non-layered: one global review every ReviewInterval chapters (if absent, review first then continue).
 	if !p.Layered && s.LastCompleted > 0 {
 		if due, _ := domain.ShouldReview(len(p.CompletedChapters)); due && !s.HasGlobalReview {
 			return expectGlobalReview
@@ -90,7 +96,7 @@ func expectedInstruction(s State) expectKind {
 	return expectNextChapter
 }
 
-// classify 把实现返回的 Instruction 归到规格类别；不认识的组合直接失败。
+// classify maps the Instruction the implementation returns onto a spec category; an unrecognised combination fails outright.
 func classify(t *testing.T, inst *Instruction) expectKind {
 	t.Helper()
 	if inst == nil {
@@ -99,16 +105,16 @@ func classify(t *testing.T, inst *Instruction) expectKind {
 	switch inst.Agent {
 	case "writer":
 		switch {
-		case contains(inst.Task, "重写") || contains(inst.Task, "打磨"):
+		case contains(inst.Task, "viết lại") || contains(inst.Task, "gọt giũa"):
 			return expectRewrite
-		case contains(inst.Task, "写第"):
+		case contains(inst.Task, "Viết chương"):
 			return expectNextChapter
 		}
 	case "editor":
 		switch {
-		case contains(inst.Task, "弧级评审"):
+		case contains(inst.Task, "Thẩm duyệt cấp cung"):
 			return expectArcReview
-		case contains(inst.Task, "全局审阅"):
+		case contains(inst.Task, "Thẩm duyệt toàn cục"):
 			return expectGlobalReview
 		case contains(inst.Task, "save_arc_summary"):
 			return expectArcSummary
@@ -117,7 +123,7 @@ func classify(t *testing.T, inst *Instruction) expectKind {
 		}
 	case "architect_long":
 		switch {
-		case contains(inst.Task, "补齐基础设定"):
+		case contains(inst.Task, "Bổ sung các mục thiếu của thiết lập nền tảng"):
 			return expectFoundationFill
 		case contains(inst.Task, "writer_feedback"):
 			return expectOutlineFeedback
@@ -127,7 +133,7 @@ func classify(t *testing.T, inst *Instruction) expectKind {
 			return expectNewVolume
 		}
 	case "architect_short":
-		if contains(inst.Task, "补齐基础设定") {
+		if contains(inst.Task, "Bổ sung các mục thiếu của thiết lập nền tảng") {
 			return expectFoundationFill
 		}
 		if contains(inst.Task, "writer_feedback") {
@@ -138,7 +144,7 @@ func classify(t *testing.T, inst *Instruction) expectKind {
 	return expectNil
 }
 
-// boundaryCase 是弧边界维度的一个枚举点：边界形态 + 三个摘要事实。
+// boundaryCase is one enumeration point of the arc-boundary dimension: the boundary shape plus three summary facts.
 type boundaryCase struct {
 	name             string
 	boundary         *storepkg.ArcBoundary
@@ -212,7 +218,7 @@ func TestRoute_ExhaustiveAgainstSpec(t *testing.T) {
 	phases := []domain.Phase{domain.PhaseInit, domain.PhasePremise, domain.PhaseOutline, domain.PhaseWriting, domain.PhaseComplete}
 	flows := []domain.FlowState{domain.FlowWriting, domain.FlowReviewing, domain.FlowRewriting, domain.FlowPolishing, domain.FlowSteering}
 	queues := [][]int{nil, {7, 9}}
-	// {1..5} 命中 ReviewInterval(=5)的全局审阅触发点
+	// {1..5} hits the global-review trigger point at ReviewInterval(=5)
 	completedSets := [][]int{nil, {1, 2, 3}, {1, 2, 3, 4, 5}}
 	missingSets := [][]string{nil, {"characters", "world_rules"}}
 	tiers := []domain.PlanningTier{"", domain.PlanningTierShort, domain.PlanningTierLong}
@@ -289,7 +295,7 @@ func TestRoute_ExhaustiveAgainstSpec(t *testing.T) {
 	}
 }
 
-// assertConservation 与具体分支无关的守恒性质。
+// assertConservation covers conservation properties independent of the specific branch.
 func assertConservation(t *testing.T, s State, inst *Instruction) {
 	t.Helper()
 	if inst == nil {
@@ -300,12 +306,12 @@ func assertConservation(t *testing.T, s State, inst *Instruction) {
 		t.Fatalf("终态或无进度时不得产生指令：%+v", inst)
 	}
 	if p.Phase != domain.PhaseWriting {
-		// 规划期唯一合法指令:补齐派单,且规划师与已落盘 tier 一致
+		// The only legitimate instruction during planning: a catch-up dispatch whose planner matches the persisted tier
 		wantPlanner := "architect_long"
 		if s.PlanningTier == domain.PlanningTierShort {
 			wantPlanner = "architect_short"
 		}
-		if inst.Agent != wantPlanner || !contains(inst.Task, "补齐基础设定") || inst.Chapter != 0 {
+		if inst.Agent != wantPlanner || !contains(inst.Task, "Bổ sung các mục thiếu của thiết lập nền tảng") || inst.Chapter != 0 {
 			t.Fatalf("规划期指令必须是补齐派单且规划师匹配 tier=%q：%+v", s.PlanningTier, inst)
 		}
 		return
@@ -319,9 +325,9 @@ func assertConservation(t *testing.T, s State, inst *Instruction) {
 			if inst.Chapter != p.PendingRewrites[0] {
 				t.Fatalf("重写队列非空时必须派队列头 %d，got %d", p.PendingRewrites[0], inst.Chapter)
 			}
-			wantVerb := "重写"
+			wantVerb := "viết lại"
 			if p.Flow == domain.FlowPolishing {
-				wantVerb = "打磨"
+				wantVerb = "gọt giũa"
 			}
 			if !contains(inst.Task, wantVerb) {
 				t.Fatalf("队列任务动词应为 %q：%q", wantVerb, inst.Task)
@@ -341,7 +347,7 @@ func assertConservation(t *testing.T, s State, inst *Instruction) {
 	}
 }
 
-// snapshotState 深拷贝 State 用于纯函数断言。
+// snapshotState deep-copies State for pure-function assertions.
 func snapshotState(s State) State {
 	cp := s
 	if s.Progress != nil {

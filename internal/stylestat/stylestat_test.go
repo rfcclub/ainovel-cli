@@ -27,14 +27,14 @@ func TestComputePatterns(t *testing.T) {
 		t.Fatal("expected stats")
 	}
 	want := map[string]int{
-		"矫正句『不是…(而)是…』":        6,
-		"计时量词『X息/X瞬』":          6,
-		"明喻『像一/仿佛/如同/宛如』":      6,
-		"沉默节拍『沉默了/没有说话/没有回头』":  6,
-		"神态模板『眼中闪过/嘴角勾起/咬了咬唇』": 6,
-		"躯体反应『心头一紧/身子一颤/倒吸凉气』": 6,
-		"思维标记『心想/意识到/感到/觉得』":   6,
-		"抽象套话『一种说不出的/的意义在于』":   6,
+		"Câu hiệu chỉnh «không… (mà) là…»":        6,
+		"Lượng từ thời gian «X hơi/X chớp»":          6,
+		"So sánh «như một/tựa như»":      6,
+		"Nhịp im lặng «im lặng/không nói gì/không quay đầu»":  6,
+		"Khuôn mẫu thần thái «ánh mắt lóe/khóe miệng nhếch/cắn môi»": 6,
+		"Phản ứng cơ thể «lòng thắt lại/người run lên/hít khí lạnh»": 6,
+		"Dấu hiệu suy nghĩ «thầm nghĩ/nhận ra/cảm thấy»":   6,
+		"Câu sáo trừu tượng «một nỗi không gọi được/ý nghĩa nằm ở»":   6,
 	}
 	for _, p := range s.Patterns {
 		if w, ok := want[p.Name]; ok && p.Total != w {
@@ -50,7 +50,7 @@ func TestComputePatterns(t *testing.T) {
 }
 
 func TestComputeTopPhrasesWithStopwords(t *testing.T) {
-	// 「青云山巅」高频出现；「陆九渊」是角色名应被过滤
+	// "青云山巅" occurs frequently; "陆九渊" is a character name and must be filtered out.
 	line := "众人望向青云山巅，陆九渊负手而立。\n"
 	chapters := make([]string, 10)
 	for i := range chapters {
@@ -124,12 +124,12 @@ func TestComputeTitleFormats(t *testing.T) {
 	for i := range chapters {
 		chapters[i] = chapterWith("正文。")
 	}
-	// 混用 → 上报
+	// Mixed -> reported.
 	s := Compute(Input{Chapters: chapters, Titles: []string{"第一章 风起", "云涌", "第3章 雷动"}})
 	if s.TitleFormats == nil || s.TitleFormats.WithPrefix != 2 || s.TitleFormats.WithoutPrefix != 1 {
 		t.Errorf("title formats: %+v", s.TitleFormats)
 	}
-	// 统一 → 不上报
+	// Consistent -> not reported.
 	s = Compute(Input{Chapters: chapters, Titles: []string{"风起", "云涌"}})
 	if s.TitleFormats != nil {
 		t.Errorf("uniform titles should not report: %+v", s.TitleFormats)

@@ -215,7 +215,7 @@ func TestChapterAdvanceGateStopsAfterTargetChapterCommit(t *testing.T) {
 	if !gate.HandleBoundary() || recorder.paused != 1 {
 		t.Fatal("目标章节稳定提交后必须暂停")
 	}
-	if len(recorder.reasons) == 0 || !strings.Contains(recorder.reasons[len(recorder.reasons)-1], "第 2 章") {
+	if len(recorder.reasons) == 0 || !strings.Contains(recorder.reasons[len(recorder.reasons)-1], "chương 2") {
 		t.Fatalf("暂停事件缺少目标章节: %v", recorder.reasons)
 	}
 	meta, _ := st.RunMeta.Load()

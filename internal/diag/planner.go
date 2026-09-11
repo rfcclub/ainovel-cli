@@ -2,8 +2,8 @@ package diag
 
 import "fmt"
 
-// PlanActions 根据高置信 Finding 生成可执行动作。
-// 只有 Confidence==high && AutoLevel==safe 的 Finding 才会产出 Action。
+// PlanActions generates executable actions from high-confidence Findings.
+// Only Findings with Confidence==high && AutoLevel==safe produce an Action.
 func PlanActions(findings []Finding) []Action {
 	var actions []Action
 	seen := make(map[string]struct{})
@@ -29,15 +29,15 @@ func planRule(f Finding) []Action {
 	case "PhaseFlowMismatch":
 		return []Action{
 			{SourceRule: f.Rule, Kind: ActionEmitNotice, Severity: f.Severity, Summary: f.Title, Message: f.Title, Fingerprint: key},
-			{SourceRule: f.Rule, Kind: ActionEnqueueFollowUp, Severity: f.Severity, Summary: "状态机异常修复", Message: "状态机异常：" + f.Evidence + "。请先检查并修正 progress 的 phase/flow 状态，再继续运行。", Fingerprint: key},
+			{SourceRule: f.Rule, Kind: ActionEnqueueFollowUp, Severity: f.Severity, Summary: "Sửa bất thường máy trạng thái", Message: "Máy trạng thái bất thường: " + f.Evidence + ". Hãy kiểm tra và sửa trạng thái phase/flow trong progress trước rồi mới chạy tiếp.", Fingerprint: key},
 		}
 	case "OutlineExhausted":
 		return []Action{
-			{SourceRule: f.Rule, Kind: ActionEnqueueFollowUp, Severity: f.Severity, Summary: "大纲耗尽处理", Message: "已完成章节数达到已规划上限。请优先调用 Architect 展开下一弧或追加新卷，再继续写作。", Fingerprint: key},
+			{SourceRule: f.Rule, Kind: ActionEnqueueFollowUp, Severity: f.Severity, Summary: "Xử lý cạn đại cương", Message: "Số chương đã hoàn thành đạt giới hạn đã quy hoạch. Hãy ưu tiên gọi Architect để mở rộng cung kế tiếp hoặc thêm tập mới, rồi mới viết tiếp.", Fingerprint: key},
 		}
 	case "OrphanedSteer":
 		return []Action{
-			{SourceRule: f.Rule, Kind: ActionEnqueueFollowUp, Severity: f.Severity, Summary: "消费未处理的用户干预", Message: "存在未消费的用户干预指令，请优先处理 pending steer 后再继续当前任务。", Fingerprint: key},
+			{SourceRule: f.Rule, Kind: ActionEnqueueFollowUp, Severity: f.Severity, Summary: "Xử lý can thiệp người dùng chưa tiêu thụ", Message: "Còn chỉ thị can thiệp của người dùng chưa được xử lý, hãy xử lý pending steer trước rồi mới tiếp tục nhiệm vụ hiện tại.", Fingerprint: key},
 		}
 	default:
 		return nil

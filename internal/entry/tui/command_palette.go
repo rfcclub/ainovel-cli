@@ -77,8 +77,8 @@ func (m *Model) clearCommandPalette() {
 	m.compActive = false
 }
 
-// syncCommandInputHighlight 复用命令注册表识别第一个 token。只记录完整、已注册的
-// 命令；最终渲染时仅给这个 token 着色，参数保持普通正文色。
+// syncCommandInputHighlight reuses the command registry to recognise the first token. Only a complete, registered command is
+// recorded; at render time that token alone is coloured while the arguments keep the ordinary prose colour.
 func (m *Model) syncCommandInputHighlight() {
 	m.commandToken = ""
 	fields := strings.Fields(m.textarea.Value())
@@ -179,8 +179,8 @@ func renderCommandPalette(width int, items []commandPaletteItem, cursor int) str
 		}
 
 		name := nameRenderer.Render(item.Name)
-		// truncateWidth 按视觉宽度截断（中文字符算 2 列）；用 truncate 会按 rune 数算，
-		// 中文场景实际宽度 = 期望的 2 倍，导致弹窗溢出。
+		// truncateWidth truncates by visual width (Chinese characters count as 2 columns); truncate counts runes, so in a
+		// Chinese context the real width would be twice the intended one and the popup would overflow.
 		desc := truncateWidth(item.Description, max(12, contentW-18))
 		descText := descRenderer.Render(desc)
 		line := prefix + name
@@ -194,16 +194,16 @@ func renderCommandPalette(width int, items []commandPaletteItem, cursor int) str
 	if selectedIdx < 0 || selectedIdx >= len(visible) {
 		selectedIdx = 0
 	}
-	hint := mutedStyle.Render("↑↓ 选择 · Tab/Enter 接受 · Esc 关闭")
+	hint := mutedStyle.Render("↑↓ chọn · Tab/Enter nhận · Esc đóng")
 	usage := "Usage: " + visible[selectedIdx].Usage
 	if remaining > 0 {
-		usage = usage + " · 还有 " + strconv.Itoa(remaining) + " 个命令"
+		usage = usage + " · còn " + strconv.Itoa(remaining) + " lệnh"
 	}
 	usageLine := mutedStyle.Render(truncateWidth(usage, contentW))
 	body = append(body, usageLine+strings.Repeat(" ", max(0, contentW-lipgloss.Width(usageLine))))
 	body = append(body, hint+strings.Repeat(" ", max(0, contentW-lipgloss.Width(hint))))
 
-	return renderPaddedModalFrame(boxW, len(body)+2, "命令", "", body)
+	return renderPaddedModalFrame(boxW, len(body)+2, "Lệnh", "", body)
 }
 
 func commandPaletteWindow(total, cursor, limit int) (start, end int) {

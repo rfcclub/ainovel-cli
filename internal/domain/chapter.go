@@ -5,29 +5,30 @@ import (
 	"unicode/utf8"
 )
 
-// ReviewInterval 全局审阅间隔（每 N 章触发一次）。
+// ReviewInterval is the global review interval (triggered every N chapters).
 const ReviewInterval = 5
 
-// ShouldReview 根据已完成章节数判断是否需要全局审阅（短篇/中篇模式）。
+// ShouldReview decides from the completed chapter count whether a global review is due
+// (short/mid-length mode).
 func ShouldReview(completedCount int) (bool, string) {
 	if completedCount > 0 && completedCount%ReviewInterval == 0 {
-		return true, fmt.Sprintf("已完成 %d 章，触发全局审阅", completedCount)
+		return true, fmt.Sprintf("Đã hoàn thành %d chương, kích hoạt thẩm duyệt toàn cục", completedCount)
 	}
 	return false, ""
 }
 
-// ShouldArcReview 长篇模式下判断是否需要弧级/卷级评审。
+// ShouldArcReview decides whether an arc-level or volume-level review is due in long-form mode.
 func ShouldArcReview(isArcEnd, isVolumeEnd bool, volume, arc int) (bool, string) {
 	if isVolumeEnd {
-		return true, fmt.Sprintf("第 %d 卷第 %d 弧结束（卷结束），触发弧级+卷级评审", volume, arc)
+		return true, fmt.Sprintf("tập %d cung %d kết thúc (hết tập), kích hoạt thẩm duyệt cấp cung + cấp tập", volume, arc)
 	}
 	if isArcEnd {
-		return true, fmt.Sprintf("第 %d 卷第 %d 弧结束，触发弧级评审", volume, arc)
+		return true, fmt.Sprintf("tập %d cung %d kết thúc, kích hoạt thẩm duyệt cấp cung", volume, arc)
 	}
 	return false, ""
 }
 
-// WordCount 按 rune 计算字数。
+// WordCount counts characters by rune.
 func WordCount(content string) int {
 	return utf8.RuneCountInString(content)
 }

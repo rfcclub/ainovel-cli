@@ -12,7 +12,7 @@ import (
 	"github.com/voocel/litellm"
 )
 
-// flakyModel 前 fails 次返回可重试错误，之后按 mockModel 响应。
+// flakyModel returns a retryable error for the first `fails` calls and then responds like mockModel.
 type flakyModel struct {
 	mockModel
 	fails int
@@ -26,16 +26,18 @@ func (f *flakyModel) Generate(ctx context.Context, msgs []agentcore.Message, too
 	return f.mockModel.Generate(ctx, msgs, tools, opts...)
 }
 
-// fastRetryErr 可重试且退避极短（RetryAfter 命中 RetryHinter），保证测试快速。
+// fastRetryErr is retryable with a very short backoff (RetryAfter satisfies RetryHinter), keeping tests fast.
 type fastRetryErr struct{}
 
 func (fastRetryErr) Error() string             { return "rate limited" }
 func (fastRetryErr) Retryable() bool           { return true }
 func (fastRetryErr) RetryAfter() time.Duration { return time.Millisecond }
 
-// TestCallStructuredNotifiesRetries 守护重试可见性：请求退避与校验重问都必须回显，
-// 否则指数退避可静默数分钟，用户会误以为导入卡死（截图问题：3 分钟无声后才报错）。
-// 请求退避还必须携带非零 retryAt 截止时刻——UI 倒计时依赖它；校验重问即时发生，retryAt 为零。
+// TestCallStructuredNotifiesRetries guards retry visibility: both request backoff and validation re-asks
+// must be echoed, or exponential backoff can go silent for minutes and the user thinks the import hung
+// (the reported symptom: three silent minutes before an error). Request backoff must also carry a
+// non-zero retryAt deadline, on which the UI's countdown depends; a validation re-ask happens at once,
+// so its retryAt is zero.
 func TestCallStructuredNotifiesRetries(t *testing.T) {
 	m := &flakyModel{mockModel: mockModel{responses: []string{"不是 JSON", `{"boundaries":[]}`}}, fails: 2}
 	var notes []string
@@ -45,7 +47,7 @@ func TestCallStructuredNotifiesRetries(t *testing.T) {
 		if !retryAt.IsZero() {
 			retries++
 		}
-		if strings.Contains(s, "重问") {
+		if strings.Contains(s, "hỏi lại") {
 			reasks++
 		}
 	}}
@@ -57,30 +59,32 @@ func TestCallStructuredNotifiesRetries(t *testing.T) {
 	}
 }
 
-// TestBriefErrIncludesAdapterFacts 守护错误回显的可诊断性：网关 message 可能只有一句
-// "Provider returned error"，回显必须补上 litellm 携带的结构化事实（分类/HTTP 状态/provider/模型），
-// 且事实在前——截断时优先保住它们；非适配器错误保持原样。
+// TestBriefErrIncludesAdapterFacts guards the diagnosability of error echoes: a gateway message may be
+// just "Provider returned error", so the echo must add the structured facts litellm carries
+// (class / HTTP status / provider / model) with the facts first — they are preserved first on truncation;
+// a non-adapter error stays as-is.
 func TestBriefErrIncludesAdapterFacts(t *testing.T) {
 	le := &litellm.LiteLLMError{
 		Type: litellm.ErrorTypeProvider, StatusCode: 502,
 		Provider: "openai", Model: "gpt-x", Message: "Provider returned error",
 	}
 	got := briefErr(fmt.Errorf("外层包装：%w", le))
-	for _, want := range []string{"上游服务错误", "HTTP 502", "openai", "gpt-x", "Provider returned error"} {
+	for _, want := range []string{"lỗi dịch vụ thượng nguồn", "HTTP 502", "openai", "gpt-x", "Provider returned error"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("回显应包含 %q，得 %q", want, got)
 		}
 	}
-	if !strings.HasPrefix(got, "上游服务错误") {
+	if !strings.HasPrefix(got, "lỗi dịch vụ thượng nguồn") {
 		t.Fatalf("结构化事实应在前，得 %q", got)
 	}
-	if got := briefErr(errors.New("普通错误")); got != "普通错误" {
-		t.Fatalf("非适配器错误应保持原样，得 %q", got)
+	if got := briefErr(errors.New("lỗi thường")); got != "lỗi thường" {
+		t.Fatalf("lỗi không phải từ adapter phải giữ nguyên, nhận %q", got)
 	}
 }
 
-// TestCallStructuredCancelIsNotSemanticFailure 守护取消语义：用户取消（Esc）不是语义失败，
-// 不得包装成「N 次尝试」的 errSemantic——那会误导排查方向并多落一份误导性 failures/ 工件。
+// TestCallStructuredCancelIsNotSemanticFailure guards cancellation semantics: a user cancel (Esc) is not
+// a semantic failure and must not be wrapped as an "N attempts" errSemantic — that would misdirect
+// investigation and leave an extra misleading failures/ artifact.
 func TestCallStructuredCancelIsNotSemanticFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -95,8 +99,8 @@ func TestCallStructuredCancelIsNotSemanticFailure(t *testing.T) {
 	}
 }
 
-// TestCallStructuredCarriesRawOnSemanticFailure 守护 §14.2：输出层契约违约时，
-// 错误必须携带原始响应，供 runner 统一落 failures/ 失败工件。
+// TestCallStructuredCarriesRawOnSemanticFailure guards §14.2: on an output-layer contract breach the
+// error must carry the raw response so the runner can uniformly land a failures/ artifact.
 func TestCallStructuredCarriesRawOnSemanticFailure(t *testing.T) {
 	m := &nativeImportModel{mockModel: &mockModel{responses: []string{"垃圾输出 not json"}}}
 	_, err := callStructured[boundaryBatch](context.Background(), m, segmentContract, "sys", "payload", 100, callProfile{}, nil)
@@ -104,7 +108,7 @@ func TestCallStructuredCarriesRawOnSemanticFailure(t *testing.T) {
 	if !errors.As(err, &se) {
 		t.Fatalf("应返回 errSemantic，得 %T：%v", err, err)
 	}
-	if se.Raw != "垃圾输出 not json" || !strings.Contains(se.Error(), "契约违约") {
+	if se.Raw != "垃圾输出 not json" || !strings.Contains(se.Error(), "vi phạm contract") {
 		t.Fatalf("Raw 应携带最后一次原始响应，得 %q", se.Raw)
 	}
 }

@@ -28,8 +28,9 @@ func newModelConfigTestHost(t *testing.T) (*Host, string) {
 	if err != nil {
 		t.Fatalf("new model set: %v", err)
 	}
-	// 落一份初始配置：生产中 configPath 必指向已存在的配置层，SaveProviderConfig
-	// 只补 providers 段、保留其余，seed 后才能真实检验“顶层选择不被改动”。
+	// Write an initial config: in production configPath points at an existing config layer and
+	// SaveProviderConfig only fills the providers section while preserving the rest, so seeding is the only
+	// way to genuinely test "the top-level choice is not modified".
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := bootstrap.SaveConfig(path, cfg); err != nil {
 		t.Fatalf("seed config: %v", err)
@@ -40,7 +41,7 @@ func newModelConfigTestHost(t *testing.T) (*Host, string) {
 	}, path
 }
 
-// 推理强度存储保留原始意图：显式设定后，切模型不得把它钳制降级写回。
+// Reasoning-effort storage keeps the raw intent: after an explicit setting, switching models must not write a clamped downgrade back.
 func TestSetRoleThinkingPreservesIntentAcrossModelSwitch(t *testing.T) {
 	h, _ := newModelConfigTestHost(t)
 	if err := h.SetRoleThinking("writer", "high"); err != nil {
@@ -49,7 +50,7 @@ func TestSetRoleThinkingPreservesIntentAcrossModelSwitch(t *testing.T) {
 	if got := h.cfg.Roles["writer"].ReasoningEffort; got != "high" {
 		t.Fatalf("SetRoleThinking 应原样存 high，得到 %q", got)
 	}
-	// 换 writer 的模型：已存的强度意图必须保持 high，钳制只应发生在下发路径。
+	// Switch the writer's model: the stored effort intent must stay high, with clamping happening only on the dispatch path.
 	if err := h.SwitchModel("writer", "proxy", "old"); err != nil {
 		t.Fatalf("switch: %v", err)
 	}
@@ -60,7 +61,7 @@ func TestSetRoleThinkingPreservesIntentAcrossModelSwitch(t *testing.T) {
 
 func TestConfigureModelsRejectsDeletingReferencedModel(t *testing.T) {
 	h, _ := newModelConfigTestHost(t)
-	// 删掉被 writer 角色引用的 "writer-model"（保留顶层在用的 "old"）应被拒。
+	// Deleting "writer-model" while the writer role references it (keeping the top-level "old" in use) should be refused.
 	err := h.ConfigureModels(ModelConfigurationDraft{
 		Provider: "proxy", Type: "openai", BaseURL: "https://example.com/v1",
 		Models:       []bootstrap.ModelConfig{{Name: "old"}, {Name: "new"}},
@@ -75,7 +76,7 @@ func TestConfigureModelsRejectsDeletingReferencedModel(t *testing.T) {
 	}
 }
 
-// /config 不再代切默认：删掉顶层正在用的模型必须被拒，让用户先去 /model 切走。
+// /config no longer switches the default on the user's behalf: deleting a model the top level is using must be refused, leaving the user to switch away via /model first.
 func TestConfigureModelsRejectsDeletingCurrentModel(t *testing.T) {
 	h, _ := newModelConfigTestHost(t)
 	err := h.ConfigureModels(ModelConfigurationDraft{
@@ -98,12 +99,12 @@ func TestConfigureModelsPersistsAndHotApplies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("configure: %v", err)
 	}
-	// 顶层选择不被 /config 改动：仍是 proxy/old。
+	// The top-level choice is untouched by /config: still proxy/old.
 	provider, model, _ := h.models.CurrentSelection("default")
 	if provider != "proxy" || model != "old" {
 		t.Fatalf("runtime selection mutated = %s/%s", provider, model)
 	}
-	// provider 段热应用：old 的窗口更新为 640000。
+	// The providers section hot-applies: old's window updates to 640000.
 	if window, source := h.models.ResolveContextWindow("proxy", "old"); window != 640000 || source != bootstrap.CtxWindowModelConfig {
 		t.Fatalf("runtime window = %d %s", window, source)
 	}
@@ -122,8 +123,8 @@ func TestConfigureModelsPersistsAndHotApplies(t *testing.T) {
 	}
 }
 
-// TUI 草稿保存不得丢失 json_schema 三态（prepareProviderDraftLocked 整结构体
-// 往返的回归锁）。
+// Saving a TUI draft must not lose json_schema's three-state (a regression lock on
+// prepareProviderDraftLocked's whole-struct round trip).
 func TestConfigureModelsPreservesJSONSchemaTriState(t *testing.T) {
 	h, path := newModelConfigTestHost(t)
 	tr := true
@@ -234,7 +235,7 @@ func TestConfigureModelsRejectsMissingRequiredAPIKeyForUnusedProvider(t *testing
 		Models:       []bootstrap.ModelConfig{{Name: "claude-test"}},
 		APIKeyAction: APIKeyKeep,
 	})
-	if err == nil || !strings.Contains(err.Error(), "必须配置 API Key") {
+	if err == nil || !strings.Contains(err.Error(), "bắt buộc phải cấu hình API Key") {
 		t.Fatalf("未使用但要求凭证的 Provider 也应拒绝空 Key，得到 %v", err)
 	}
 	if _, exists := h.cfg.Providers["anthropic"]; exists {
@@ -289,7 +290,7 @@ func TestConfigureModelsSuggestsSwitchForNewProvider(t *testing.T) {
 		t.Fatalf("configure backup: %v", err)
 	}
 	event := <-h.events
-	if !strings.Contains(event.Summary, "使用 /model 切换") {
+	if !strings.Contains(event.Summary, "dùng /model để chuyển") {
 		t.Fatalf("新增非当前 Provider 后应提示切换，event=%q", event.Summary)
 	}
 }

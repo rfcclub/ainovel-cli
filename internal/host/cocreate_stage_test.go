@@ -10,10 +10,11 @@ import (
 	"github.com/voocel/ainovel-cli/internal/store"
 )
 
-// newFlagTestHost 造一个最小 Host，只够驱动 cocreating 标记状态机与并发守卫。
-// emitEvent 使用非阻塞通道，缓冲 events 即可，无需 observer。
-// PauseForCoCreate 的运行态分支会调 Engine Abort（复用已验证的 Esc 暂停路径），
-// 不在此单测；这里只覆盖非运行态与标记/守卫逻辑。
+// newFlagTestHost builds a minimal Host, just enough to drive the cocreating flag state machine and the
+// concurrency guard. emitEvent uses a non-blocking channel, so a buffered events is enough and no observer
+// is needed.
+// PauseForCoCreate's running branch calls Engine Abort (reusing the already-verified Esc pause path) and
+// is not unit-tested here; this covers the non-running state plus the flag and guard logic.
 func newFlagTestHost(lc lifecycle, cocreating bool) *Host {
 	return &Host{
 		lifecycle:  lc,
@@ -98,14 +99,14 @@ func TestAcquireExclusive(t *testing.T) {
 		exclusive  string
 		wantErr    string // 空=期望放行
 	}{
-		{"running", lifecycleRunning, false, "", "运行中"},
-		{"cocreating", lifecyclePaused, true, "", "阶段共创"},
-		{"busy", lifecycleIdle, false, "导入", "进行中"},
+		{"running", lifecycleRunning, false, "", "đang chạy"},
+		{"cocreating", lifecyclePaused, true, "", "đồng sáng tác giai đoạn"},
+		{"busy", lifecycleIdle, false, "导入", "đang chạy"},
 		{"idle free", lifecycleIdle, false, "", ""},
 		{"paused free", lifecyclePaused, false, "", ""},
 	}
-	// Abort 停止窗口：lifecycle 已置 paused 但引擎 goroutine 尚未退净，仍须拒绝——
-	// 否则导入会与引擎收尾并发写同一 store。
+	// The Abort stop window: lifecycle is already paused while the engine goroutine has not fully exited, and it
+	// must still refuse — otherwise an import would race the engine's wrap-up on the same store.
 	drain := newFlagTestHost(lifecyclePaused, false)
 	drain.engine.running = true
 	if err := drain.acquireExclusive("导入"); err == nil {
@@ -139,9 +140,10 @@ func TestAcquireExclusive(t *testing.T) {
 	}
 }
 
-// TestExclusiveBlocksCreationEntries 守护 #2：后台独占作业（导入/仿写）进行中时，
-// 不仅第二个后台作业被堵，创作写入口（Continue/Resume）与新后台作业也必须被堵，
-// 否则 Continue 会在引擎被门禁拦下前就让 Arbiter 改状态、Resume/next 期间引擎可抢跑。
+// TestExclusiveBlocksCreationEntries guards #2: while a background exclusive job (import / imitation) runs,
+// not only is a second background job blocked but the creation write entries (Continue/Resume) and new
+// background jobs must be blocked too — otherwise Continue would have the Arbiter change state before the
+// gate stopped the engine, and the engine could jump the gun during Resume/next.
 func TestExclusiveBlocksCreationEntries(t *testing.T) {
 	h := newFlagTestHost(lifecycleIdle, false)
 	h.exclusive = "导入"
@@ -156,8 +158,9 @@ func TestExclusiveBlocksCreationEntries(t *testing.T) {
 	}
 }
 
-// TestStageCoCreate_OccupancyBlocksConcurrentEntries 验证共创窗口内独占性入口全部被堵：
-// import/start/resume/continue 在 cocreating 期间都应被拒，补上 paused 期只查 ==running 的缺口。
+// TestStageCoCreate_OccupancyBlocksConcurrentEntries verifies every exclusivity entry point is blocked
+// inside a cocreation window: import/start/resume/continue should all be refused while cocreating, closing
+// the gap where only ==running was checked during a paused period.
 func TestStageCoCreate_OccupancyBlocksConcurrentEntries(t *testing.T) {
 	h := newFlagTestHost(lifecycleIdle, false)
 	if !h.PauseForCoCreate() {
@@ -177,7 +180,7 @@ func TestStageCoCreate_OccupancyBlocksConcurrentEntries(t *testing.T) {
 		t.Error("共创窗口内 Continue 应被拒")
 	}
 
-	// 退出共创后占用解除（这里走 Cancel；Resume 干预路径归集成验证）
+	// Occupancy is released after leaving cocreation (via Cancel here; the Resume intervention path is covered by integration tests)
 	h.CancelCoCreate()
 	if h.cocreating {
 		t.Fatal("退出后占用标记应解除")
@@ -186,7 +189,7 @@ func TestStageCoCreate_OccupancyBlocksConcurrentEntries(t *testing.T) {
 
 func TestBuildStoryStateSummary_NilStore(t *testing.T) {
 	if got := buildStoryStateSummary(nil); got != "" {
-		t.Errorf("nil store 应返回空串，得 %q", got)
+		t.Errorf("store nil phải trả chuỗi rỗng, nhận %q", got)
 	}
 }
 
@@ -217,9 +220,9 @@ func TestBuildStoryStateSummary_Populated(t *testing.T) {
 	}
 
 	got := buildStoryStateSummary(st)
-	for _, want := range []string{"影之诗", "已完成 3 章", "下一章为第 4 章", "主角登临绝巅", "师门血仇未报", "预计 4-6 卷"} {
+	for _, want := range []string{"影之诗", "đã hoàn thành 3 chương", "chương tiếp theo là chương 4", "主角登临绝巅", "师门血仇未报", "预计 4-6 卷"} {
 		if !strings.Contains(got, want) {
-			t.Errorf("摘要应含 %q，实际:\n%s", want, got)
+			t.Errorf("tóm tắt phải chứa %q, thực tế:\n%s", want, got)
 		}
 	}
 }
@@ -250,10 +253,10 @@ func TestBuildStoryStateSummaryUsesDynamicPlanningWording(t *testing.T) {
 	}
 
 	got := buildStoryStateSummary(st)
-	if !strings.Contains(got, "当前已细化 2 章（后续按弧动态规划）") {
-		t.Fatalf("动态规划摘要口径错误:\n%s", got)
+	if !strings.Contains(got, "hiện đã chi tiết hóa 2 chương (phần sau quy hoạch động theo cung)") {
+		t.Fatalf("cách diễn đạt tóm tắt quy hoạch động sai:\n%s", got)
 	}
-	if strings.Contains(got, "66") || strings.Contains(got, "规划 2 章") {
-		t.Fatalf("动态规划摘要不得暗示固定总章数:\n%s", got)
+	if strings.Contains(got, "66") || strings.Contains(got, "quy hoạch 2 chương") {
+		t.Fatalf("tóm tắt quy hoạch động không được gợi ý tổng số chương cố định:\n%s", got)
 	}
 }

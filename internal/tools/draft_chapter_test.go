@@ -41,7 +41,7 @@ func TestDraftChapterRejectsUnfinishedPendingRewrite(t *testing.T) {
 		t.Fatalf("Marshal: %v", err)
 	}
 
-	if _, err := tool.Execute(context.Background(), args); err == nil || !strings.Contains(err.Error(), "pending_rewrites 只能包含已完成章节") {
+	if _, err := tool.Execute(context.Background(), args); err == nil || !strings.Contains(err.Error(), "pending_rewrites chỉ được chứa") {
 		t.Fatalf("expected invalid pending_rewrites rejection, got %v", err)
 	}
 	progress, _ := s.Progress.Load()

@@ -12,7 +12,7 @@ import (
 	"github.com/voocel/ainovel-cli/internal/store"
 )
 
-// newTestStore 构造一个 t.TempDir() 之上的最小 store，已写入 1..n 章终稿与 progress。
+// newTestStore builds a minimal store on a t.TempDir() with final drafts for chapters 1..n and progress already written.
 func newTestStore(t *testing.T, novelName string, completed []int) (*store.Store, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -73,12 +73,12 @@ func TestRun_HappyPath_DefaultsToNovelDir(t *testing.T) {
 		t.Fatalf("read output: %v", err)
 	}
 	text := string(data)
-	for _, want := range []string{"《光斑》", "第 1 章  雨夜归人", "第 3 章  余烬"} {
+	for _, want := range []string{"《光斑》", "Chương 1  雨夜归人", "Chương 3  余烬"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("output missing %q\nfull:\n%s", want, text)
 		}
 	}
-	// premise 不进导出（创作蓝图，非读者内容）
+	// premise does not go into the export (it is a creation blueprint, not reader content)
 	if strings.Contains(text, "光与影的故事。") {
 		t.Errorf("premise must not appear in export:\n%s", text)
 	}
@@ -104,12 +104,12 @@ func TestRun_UsesCommittedTitleForCompletedChapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(data)
-	if !strings.Contains(text, "第 1 章  终稿标题") || strings.Contains(text, "计划标题") {
+	if !strings.Contains(text, "Chương 1  终稿标题") || strings.Contains(text, "计划标题") {
 		t.Fatalf("export title projection is wrong:\n%s", text)
 	}
 }
 
-// TestRun_PremiseNotExported 端到端钉死：premise.md 存在也不进导出，书名保留（issue #27）。
+// TestRun_PremiseNotExported pins down end to end that an existing premise.md still stays out of the export while the book title is kept (issue #27).
 func TestRun_PremiseNotExported(t *testing.T) {
 	s, _ := newTestStore(t, "光斑", []int{1})
 	if err := s.Outline.SavePremise("# 光斑\n## 目标读者\n不该出现的创作蓝图。"); err != nil {
@@ -150,11 +150,11 @@ func TestRun_ExistingFile_NoOverwrite(t *testing.T) {
 	if err == nil {
 		t.Fatal("expect error when target exists and !Overwrite")
 	}
-	if !strings.Contains(err.Error(), "已存在") {
+	if !strings.Contains(err.Error(), "đã tồn tại") {
 		t.Errorf("unexpected error: %v", err)
 	}
 
-	// 加 Overwrite 应成功
+	// Adding Overwrite should succeed
 	res, err := Run(context.Background(), Deps{Store: s}, Options{OutPath: target, Overwrite: true})
 	if err != nil {
 		t.Fatalf("Overwrite Run: %v", err)
@@ -260,7 +260,7 @@ func TestRun_EPUB_FromExtension(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	// EPUB 是 zip，前 4 字节 PK 头
+	// EPUB is a zip, so the first 4 bytes are the PK header
 	if len(data) < 4 || string(data[:2]) != "PK" {
 		t.Errorf("output does not look like a zip: %x", data[:min(8, len(data))])
 	}
@@ -284,7 +284,7 @@ func TestRun_UnknownExtension(t *testing.T) {
 	if err == nil {
 		t.Fatal("expect error for unknown extension")
 	}
-	if !strings.Contains(err.Error(), "扩展名") {
+	if !strings.Contains(err.Error(), "phần mở rộng") {
 		t.Errorf("error should mention extension: %v", err)
 	}
 }

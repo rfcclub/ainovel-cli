@@ -7,8 +7,9 @@ import (
 	"testing"
 )
 
-// TestEnsureRulesDirAt 验证备好目录 + README.txt：写入说明、始终覆盖为最新模板，
-// 且 README.txt（非 .md）不会被扫描当成规则。
+// TestEnsureRulesDirAt verifies directory + README.txt preparation: the instructions are written, they
+// are always overwritten with the latest template, and README.txt (not .md) is never scanned as a
+// rule.
 func TestEnsureRulesDirAt(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "rules")
 	if err := ensureRulesDirAt(dir); err != nil {
@@ -19,16 +20,16 @@ func TestEnsureRulesDirAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("README.txt should be written: %v", err)
 	}
-	// 砍 YAML 后引导改讲"大白话 + 自动归一化"，不再教 front matter。
-	if !strings.Contains(string(data), "归一化") {
-		t.Errorf("README.txt 应说明自然语言会被归一化，got %q", data)
+	// After YAML was dropped the guidance now teaches "plain language + automatic normalisation" rather than front matter.
+	if !strings.Contains(string(data), "chuẩn hóa") {
+		t.Errorf("README.txt should explain that natural language gets normalised, got %q", data)
 	}
 	if strings.Contains(string(data), "front matter") {
-		t.Errorf("README.txt 不应再教 YAML front matter，got %q", data)
+		t.Errorf("README.txt should not teach YAML front matter anymore, got %q", data)
 	}
 
-	// 始终覆盖为最新模板：旧版本写的过时文案再次 ensure 时被刷新
-	if err := os.WriteFile(readme, []byte("旧版本写的过时文案"), 0o644); err != nil {
+	// Always overwritten with the latest template: stale wording written by an older version is refreshed on the next ensure
+	if err := os.WriteFile(readme, []byte("văn bản cũ từ phiên bản trước"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureRulesDirAt(dir); err != nil {
@@ -38,13 +39,13 @@ func TestEnsureRulesDirAt(t *testing.T) {
 		t.Errorf("README.txt should be refreshed to latest template, got %q", again)
 	}
 
-	// README.txt 不被当规则（扫描只认 .md）
+	// README.txt is not treated as a rule (the scan only accepts .md)
 	if srcs := RawFileSources(LoadOptions{HomeRulesDir: dir}); len(srcs) != 0 {
 		t.Errorf("README.txt must not be scanned as a rule, got %d sources", len(srcs))
 	}
 }
 
-// TestDefaultProjectRulesDir 锁死项目级规则目录镜像全局：./.ainovel/rules/。
+// TestDefaultProjectRulesDir pins down that the project-level rules directory mirrors the global one: ./.ainovel/rules/.
 func TestDefaultProjectRulesDir(t *testing.T) {
 	proj := filepath.Join("/tmp", "demo-book")
 	want := filepath.Join(proj, ".ainovel", "rules")
@@ -56,8 +57,8 @@ func TestDefaultProjectRulesDir(t *testing.T) {
 	}
 }
 
-// TestDefaultOptions_ScansProjectRulesFromDotAinovel 端到端验证：
-// DefaultOptions 把 cwd 下的 ./.ainovel/rules/ 接进 SourceProject 来源。
+// TestDefaultOptions_ScansProjectRulesFromDotAinovel verifies end to end that DefaultOptions wires
+// ./.ainovel/rules/ under cwd into the SourceProject source.
 func TestDefaultOptions_ScansProjectRulesFromDotAinovel(t *testing.T) {
 	proj := t.TempDir()
 	t.Chdir(proj)

@@ -35,8 +35,9 @@ type architectContextEnvelope struct {
 	References map[string]any
 }
 
-// planningVolumeOutline 是 Architect 的只读结构投影。已完成弧只保留边界和数量，
-// 未完成/未发生弧保留详细章节，避免长篇上下文随已写章节数线性膨胀。
+// planningVolumeOutline is the Architect's read-only structural projection. Completed arcs keep only their bounds
+// and counts while unfinished or not-yet-reached arcs keep detailed chapters, so a long book's context does not grow
+// linearly with the number of chapters written.
 type planningVolumeOutline struct {
 	Index int                  `json:"index"`
 	Title string               `json:"title"`
@@ -75,7 +76,7 @@ func newArchitectContextEnvelope() architectContextEnvelope {
 }
 
 func (e chapterContextEnvelope) apply(result map[string]any) {
-	// 章节路径会先后应用准备阶段和构建阶段的内容，因此合并已有分区。
+	// The chapter path applies the prepare stage and the build stage in turn, so existing sections are merged.
 	mergeEnvelopeSection(result, "working_memory", e.Working)
 	mergeEnvelopeSection(result, "episodic_memory", e.Episodic)
 	mergeEnvelopeSection(result, "reference_pack", e.References)
@@ -84,7 +85,7 @@ func (e chapterContextEnvelope) apply(result map[string]any) {
 	}
 }
 
-// mergeEnvelopeSection 把 section 合并进 result[key] 的既有容器；容器不存在时直接挂载。
+// mergeEnvelopeSection merges section into the existing container at result[key], mounting it directly when no container exists.
 func mergeEnvelopeSection(result map[string]any, key string, section map[string]any) {
 	if existing, ok := result[key].(map[string]any); ok {
 		for k, v := range section {
@@ -101,8 +102,8 @@ func (e architectContextEnvelope) apply(result map[string]any) {
 	result["reference_pack"] = e.References
 }
 
-// buildProgressStatus 在 Architect 不传 chapter 时返回进度摘要。
-// Writer/Editor 的章节路径不需要这些信息，避免干扰写作。
+// buildProgressStatus returns a progress summary when the Architect passes no chapter.
+// The Writer/Editor chapter path does not need this information, and including it would disturb the writing.
 func (t *ContextTool) buildProgressStatus(result map[string]any, reads *contextReads) {
 	progress, err := t.store.Progress.Load()
 	if err != nil {
@@ -146,23 +147,25 @@ func (t *ContextTool) buildProgressStatus(result map[string]any, reads *contextR
 	result["progress_status"] = status
 }
 
-// buildUserRules 把合并后的 Bundle 注入 working_memory.user_rules（canonical 路径）。
+// buildUserRules injects the merged Bundle into working_memory.user_rules (the canonical path).
 //
-// 单点注入：writer / editor / architect 任一路径调用 novel_context
-// 都能在 working_memory.user_rules 拿到一致的偏好。architect 路径原本没有 working_memory，
-// 由本函数按需新建（仅装 user_rules）；chapter > 0 路径下 working_memory 已存在，直接嵌入。
+// Single-point injection: whichever path calls novel_context — writer, editor or architect — gets consistent
+// preferences at working_memory.user_rules. The architect path had no working_memory, so this function creates one on
+// demand (holding only user_rules); on a chapter > 0 path working_memory already exists and it is embedded directly.
 //
-// 即便 Bundle 为空也注入，保持字段稳定，避免 LLM 看到 user_rules=null 而走异常分支。
+// It is injected even when the Bundle is empty, keeping the field stable so the LLM does not see user_rules=null and take an abnormal branch.
 //
-// 注入策略：只给 LLM 看 structured + preferences——这两项才是创作时需要遵循的偏好。
-// sources / conflicts 是诊断信息（用户冲突排查），不进 LLM；由 CLI 启动诊断面板按需展示。
+// Injection policy: the LLM sees structured + preferences only — those two are the preferences to follow while
+// writing. sources / conflicts are diagnostics (for investigating user conflicts) and do not go to the LLM; the CLI's
+// startup diagnostics panel shows them on demand.
 func (t *ContextTool) buildUserRules(result map[string]any, reads *contextReads) {
 	snap, err := t.store.UserRules.Load()
 	if err != nil {
 		reads.require("user_rules", err)
 	}
 	if snap == nil {
-		// 快照尚未初始化时使用代码内置默认，保证机械底线（字数/禁语/疲劳词）始终存在。
+		// When the snapshot is not initialised yet, fall back to the built-in default so the
+		// mechanical floor (word count / forbidden phrases / fatigue words) always exists.
 		def := rules.BuildSnapshot([]rules.Candidate{rules.SystemDefaults()})
 		snap = &def
 	}
@@ -269,11 +272,12 @@ func (t *ContextTool) prepareChapterContext(chapter int, envelope *chapterContex
 	}
 	state.chapterPlan = chapterPlan
 
-	// 是否正在重写本章：决定 novel_context 是否补"重写专用"事实。
+	// Whether this chapter is being rewritten: decides whether novel_context adds the "rewrite-specific" facts.
 	isRewrite := progress != nil && slices.Contains(progress.PendingRewrites, chapter)
 
-	// 暴露 draft 是否已存在的事实：让 writer 被重派时能自行判断跳过重写还是覆盖。
-	// 只暴露 exists + word_count，不注入正文（正文让 writer 按需用 read_chapter 拉）。
+	// Surfaces the fact of whether a draft exists, so a re-dispatched writer can judge for itself whether to skip the
+	// rewrite or overwrite. Only exists + word_count are exposed; the prose is not injected (the writer pulls it on
+	// demand with read_chapter).
 	if _, draftWords, draftErr := t.store.Drafts.LoadChapterContent(chapter); draftErr == nil && draftWords > 0 {
 		envelope.Working["chapter_draft"] = map[string]any{
 			"exists":     true,
@@ -283,9 +287,10 @@ func (t *ContextTool) prepareChapterContext(chapter int, envelope *chapterContex
 		reads.require("chapter_draft", draftErr)
 	}
 
-	// 重写时把"为什么改 + 改哪里"交给 writer：理由来自返工队列，具体批评来自本章评审
-	// （selectReviewLessons 只召回 chapter-1..chapter-3，恰好漏掉本章本身，writer 又无读评审的工具）。
-	// 正文不在此注入——保持"正文按需 read_chapter 拉"的约定不破。
+	// On a rewrite, "why change it and where" goes to the writer: the reason comes from the rework queue and the
+	// concrete criticism from this chapter's review (selectReviewLessons recalls only chapter-1..chapter-3, which
+	// happens to miss this chapter itself, and the writer has no tool to read reviews). The prose is not injected here,
+	// keeping intact the convention that prose is pulled on demand with read_chapter.
 	if isRewrite {
 		brief := map[string]any{"reason": progress.RewriteReason}
 		if reviews, reviewErr := t.store.World.LoadReviewsAffectingChapter(chapter); reviewErr == nil {
@@ -298,8 +303,8 @@ func (t *ContextTool) prepareChapterContext(chapter int, envelope *chapterContex
 				}
 				var issues []domain.ConsistencyIssue
 				for _, issue := range review.Issues {
-					// 新评审按问题到章节的映射精准下发；旧评审没有映射时保留
-					// 全部问题，避免历史返工理由在升级后消失。
+					// A new review dispatches precisely through its issue-to-chapter mapping; an old review without a
+					// mapping keeps every issue, so historical rework reasons do not vanish after an upgrade.
 					if len(issue.Chapters) == 0 || (issue.RequiresChange && slices.Contains(issue.Chapters, chapter)) {
 						issues = append(issues, issue)
 					}
@@ -314,7 +319,7 @@ func (t *ContextTool) prepareChapterContext(chapter int, envelope *chapterContex
 			}
 			if len(sources) > 0 {
 				brief["reviews"] = sources
-				// 单来源保留旧字段，避免已存在的上下文消费者升级时丢失信息。
+				// A single source keeps the old fields, so existing context consumers do not lose information on upgrade.
 				if len(sources) == 1 {
 					brief["review_summary"] = sources[0]["summary"]
 					if issues, ok := sources[0]["issues"]; ok {
@@ -387,10 +392,12 @@ func (t *ContextTool) buildChapterContext(result map[string]any, state contextBu
 	envelope.apply(result)
 }
 
-// buildStyleStats 对全部已完成章节做全书级风格统计，注入 episodic_memory.style_stats。
-// 弧内评审窗口对"章均几十次的句式 tic、章末形态同构、跨章复读"天然失明，只有
-// 全书统计能暴露——统计归代码（确定性），裁定归 LLM（editor 在 aesthetic 维度
-// 按数字判分，writer 据此自避免）。章数不足时 stylestat 返回 nil，不注入。
+// buildStyleStats computes book-level style statistics over every completed chapter and injects them at
+// episodic_memory.style_stats.
+// An in-arc review window is naturally blind to "a sentence tic dozens of times per chapter, identical chapter-ending
+// shapes, cross-chapter repetition", and only book-level statistics expose them — statistics belong to code
+// (deterministic) and the verdict to the LLM (the editor scores the aesthetic dimension from the numbers and the
+// writer self-avoids from them). stylestat returns nil when there are too few chapters, and nothing is injected.
 func (t *ContextTool) buildStyleStats(envelope *chapterContextEnvelope, state contextBuildState, reads *contextReads) {
 	if state.progress == nil || len(state.progress.CompletedChapters) == 0 {
 		return
@@ -420,7 +427,7 @@ func (t *ContextTool) buildStyleStats(envelope *chapterContextEnvelope, state co
 	envelope.Episodic["style_stats"] = stats
 }
 
-// styleStopwords 收集角色名与别名供短语挖掘过滤——出场人名天然高频，不是文风问题。
+// styleStopwords collects character names and aliases to filter phrase mining — appearing names are naturally high-frequency and are not a style problem.
 func (t *ContextTool) styleStopwords(reads *contextReads) []string {
 	var words []string
 	if chars, err := t.store.Characters.Load(); err == nil {
@@ -450,12 +457,13 @@ func (t *ContextTool) buildChapterWorkingMemory(envelope *chapterContextEnvelope
 
 	if state.profile.Layered {
 		t.loadLayeredSummaries(envelope.Working, state.chapter, state.profile.SummaryWindow, reads)
-		// 收官纪律：本章属于已宣告的收官卷时注入，防 writer 在收官段临章再开新钩子
-		//（收官卷写完即自动完结，此时新埋的伏笔永远没有机会回收）。
+		// Closing discipline: injected when this chapter belongs to a declared closing volume, stopping the writer from
+		// opening new hooks near the end of the closing stretch (a closing volume completes automatically once written,
+		// so a foreshadow planted then would never get a chance to be recovered).
 		if volumes, err := t.store.Outline.LoadLayeredOutline(); err == nil {
 			if fv := domain.FinaleVolume(volumes); fv > 0 {
 				if b, boundaryErr := t.store.Outline.CheckArcBoundary(state.chapter); boundaryErr == nil && b != nil && b.Volume == fv {
-					envelope.Working["finale"] = "本卷为全书收官卷：不再新开长线或埋新伏笔，优先回收既有伏笔、收拢关系线，按大纲把故事推向终局。"
+					envelope.Working["finale"] = "Tập này là tập kết thúc toàn sách: không mở tuyến dài mới hay gieo phục bút mới, ưu tiên thu hồi phục bút sẵn có, thu gọn các tuyến quan hệ, đẩy câu chuyện tới kết cục theo đại cương."
 				} else {
 					reads.require("arc_boundary", boundaryErr)
 				}
@@ -486,8 +494,9 @@ func (t *ContextTool) buildChapterWorkingMemory(envelope *chapterContextEnvelope
 		}
 		if len(state.progress.HookHistory) > 0 {
 			checkpoint["hook_history"] = state.progress.HookHistory
-			// 同时给出计数：只给序列，模型会自己数，而且数错——实测 Editor 连续三次
-			// 报"约 18/22 章是 mystery"，真实值是 16。凡是能算的事实都由代码算好再交给它。
+			// Counts are given alongside: handed only a sequence, the model counts for itself and counts wrong — an
+			// editor was measured reporting "about 18/22 chapters are mystery" three times running when the real value
+			// was 16. Any fact that can be computed is computed by code and then handed over.
 			checkpoint["hook_type_counts"] = countByValue(state.progress.HookHistory)
 		}
 		envelope.Working["checkpoint"] = checkpoint
@@ -506,8 +515,9 @@ func (t *ContextTool) buildChapterWorkingMemory(envelope *chapterContextEnvelope
 	}
 }
 
-// buildOutlineWindow 为 Writer/Editor 保留与当前任务直接相关的大纲，而不是注入
-// 随全书增长的完整扁平大纲。分层模式使用当前弧；非分层模式使用最近一个评审周期。
+// buildOutlineWindow keeps the outline directly relevant to the current task for the Writer/Editor, instead of
+// injecting a full flat outline that grows with the book. Layered mode uses the current arc; non-layered mode uses the
+// most recent review cycle.
 func (t *ContextTool) buildOutlineWindow(working map[string]any, state contextBuildState, reads *contextReads) {
 	outline := state.outline
 	if len(outline) == 0 {
@@ -556,8 +566,9 @@ func (t *ContextTool) buildChapterEpisodicMemory(envelope *chapterContextEnvelop
 		envelope.Episodic["foreshadow_ledger"] = state.foreshadow
 	}
 
-	// 配角名册：召回最近活跃的次要角色，让 Writer 在引入旧角色时能保持口吻/定位一致
-	// 不召回所有条目（长篇会膨胀），只给最近活跃的前 N 个，按 LastSeenChapter 倒序
+	// Supporting-cast roster: recalls the most recently active supporting characters so the Writer keeps voice and
+	// positioning consistent when reintroducing old ones. Not every entry is recalled (a long book would balloon), only
+	// the most recently active N, ordered by LastSeenChapter descending
 	if recentCast, err := t.store.Cast.RecentActive(15); err == nil && len(recentCast) > 0 {
 		simplified := make([]map[string]any, 0, len(recentCast))
 		for _, e := range recentCast {
@@ -743,8 +754,9 @@ func (t *ContextTool) buildArchitectPlanning(envelope *architectContextEnvelope,
 	} else {
 		reads.require("volume_summaries", err)
 	}
-	// 卷摘要承接已完成卷；当前卷的弧摘要承接最近实际剧情。扩弧时两者与
-	// 骨架目标同时交给 Architect，让模型自行决定保留还是修订未写计划。
+	// Volume summaries carry the completed volumes and the current volume's arc summaries carry the latest actual plot.
+	// When expanding an arc both go to the Architect together with the skeleton goal, letting the model decide for
+	// itself whether to keep or revise the unwritten plan.
 	if progressErr == nil && progress != nil && progress.CurrentVolume > 0 {
 		if arcSummaries, err := t.store.Summaries.LoadArcSummaries(progress.CurrentVolume); err == nil && len(arcSummaries) > 0 {
 			envelope.Planning["arc_summaries"] = arcSummaries
@@ -755,9 +767,9 @@ func (t *ContextTool) buildArchitectPlanning(envelope *architectContextEnvelope,
 		reads.require("progress_for_arc_summaries", progressErr)
 	}
 
-	// completion_signals 把"全书是否该结尾"的关键事实集中呈现，
-	// 让架构师在裁定 complete_book / append_volume 时一眼看到对照面。
-	// 散落在 progress / compass / foreshadow / layered_outline 里靠 LLM 脑算容易漏。
+	// completion_signals presents the key facts of "should the book end" in one place, so the architect sees the
+	// comparison at a glance when ruling complete_book / append_volume. Scattered across progress / compass /
+	// foreshadow / layered_outline they are easy for the LLM to miss when computed mentally.
 	envelope.Planning["completion_signals"] = t.completionSignals(layered, compass, reads)
 }
 
@@ -874,8 +886,9 @@ func (t *ContextTool) buildArchitectFoundation(envelope *architectContextEnvelop
 	} else {
 		reads.require("foundation_status", err)
 	}
-	// Writer 反馈池:commit_chapter 落盘的大纲偏离/建议,规划下一弧/卷时必须参考;
-	// expand_arc / append_volume / update_compass 成功后自动清空(已消费)。
+	// Writer feedback pool: outline deviations and suggestions persisted by commit_chapter, which must be consulted when
+	// planning the next arc or volume; cleared automatically once expand_arc / append_volume / update_compass succeed
+	// (consumed).
 	if fbs, err := t.store.Outline.LoadPendingOutlineFeedback(); err == nil && len(fbs) > 0 {
 		envelope.Foundation["writer_feedback"] = fbs
 	} else {
@@ -893,7 +906,7 @@ func (t *ContextTool) buildArchitectReferences(envelope *architectContextEnvelop
 	envelope.References["references"] = t.architectReferences()
 }
 
-// countByValue 统计取值频次，供上下文里"可数事实"直接落成数字。
+// countByValue counts value frequencies so "countable facts" in the context become numbers directly.
 func countByValue(values []string) map[string]int {
 	out := make(map[string]int, len(values))
 	for _, v := range values {

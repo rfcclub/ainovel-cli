@@ -77,7 +77,7 @@ func TestAssembleFoundationHappyClosed(t *testing.T) {
 func TestAssembleFoundationTitleMismatch(t *testing.T) {
 	facts := factsN(2)
 	facts[1].Title = "" // 破坏标题一致性会在 FlattenOutline 校验失败？标题空但结构取自 facts，故一致。
-	// 用结构覆盖不到的章制造真实不一致：章数不符。
+	// Create a genuine inconsistency with a chapter the structure does not cover: a chapter-count mismatch.
 	s := &BookSynthesis{
 		Synopsis: "无剧透简介", Premise: "# 故事前提", Characters: []domain.Character{{Name: "甲"}},
 		PlanningTier: domain.PlanningTierShort, StoryStatus: storyOpen,
@@ -107,8 +107,9 @@ func TestPlanFactRangesSplits(t *testing.T) {
 	}
 }
 
-// TestToCompactCarriesEvidence 守护 #6：逐章反推的 character/world evidence 必须进入综合紧凑视图，
-// 否则综合器只能从摘要臆造正式角色与世界规则。
+// TestToCompactCarriesEvidence guards #6: the character/world evidence from per-chapter
+// reverse-engineering must enter the synthesis compact view, or the synthesiser could only invent official
+// characters and world rules from summaries.
 func TestToCompactCarriesEvidence(t *testing.T) {
 	f := ImportedChapterFacts{
 		Chapter: 1, Title: "第一章", CoreEvent: "e", Summary: "s",
@@ -124,19 +125,20 @@ func TestToCompactCarriesEvidence(t *testing.T) {
 	}
 }
 
-// TestSynthesizeRejectsRangeMismatch 守护 #4：长书 Map 阶段区间摘要的起止章必须与请求一致，
-// 否则归并时会把错位区间当作本区间摘要。
+// TestSynthesizeRejectsRangeMismatch guards #4: a long book's Map-stage range digest must have the same
+// start and end chapters as the request, or the merge would take a misaligned range as this range's
+// digest.
 func TestSynthesizeRejectsRangeMismatch(t *testing.T) {
 	err := validateRangeDigest(&RangeDigest{StartChapter: 1, EndChapter: 5, Plot: "错位区间"}, 1, 2, "range digest")
 	if err == nil {
 		t.Fatal("区间起止章与请求不符应拒绝")
 	}
-	if !strings.Contains(err.Error(), "章范围") {
+	if !strings.Contains(err.Error(), "khoảng chương") {
 		t.Fatalf("错误应指出区间范围不符，得：%v", err)
 	}
 }
 
-// TestGroupDigestsByBudget 守护 #3 归并分组：连续区间摘要按字节预算分连续组，单摘要超预算也单独成组。
+// TestGroupDigestsByBudget guards #3 merge grouping: contiguous range digests split into contiguous groups by byte budget, with a single over-budget digest forming its own group.
 func TestGroupDigestsByBudget(t *testing.T) {
 	ds := []RangeDigest{
 		{StartChapter: 1, EndChapter: 5, Plot: strings.Repeat("x", 200)},
@@ -154,8 +156,8 @@ func TestGroupDigestsByBudget(t *testing.T) {
 	}
 }
 
-// TestReduceToFitMergesUntilBudget 守护 #3：区间摘要总量超预算时逐层归并到可容纳，
-// 而非无界进入最终综合调用。
+// TestReduceToFitMergesUntilBudget guards #3: when the total of range digests exceeds the budget it is
+// merged level by level until it fits rather than entering the final synthesis call unbounded.
 func TestReduceToFitMergesUntilBudget(t *testing.T) {
 	ds := []RangeDigest{
 		{StartChapter: 1, EndChapter: 5, Plot: strings.Repeat("x", 200)},
@@ -164,7 +166,7 @@ func TestReduceToFitMergesUntilBudget(t *testing.T) {
 		{StartChapter: 16, EndChapter: 20, Plot: strings.Repeat("w", 200)},
 	}
 	budget := len(mustJSON(t, ds[0]))*2 + 10
-	// 每组归并出一个小摘要：第 1-10 章、第 11-20 章。
+	// Each group merges into one small digest: chapters 1-10, then 11-20.
 	m := &mockModel{responses: []string{
 		rangeDigestJSON(1, 10, "合并一"),
 		rangeDigestJSON(11, 20, "合并二"),

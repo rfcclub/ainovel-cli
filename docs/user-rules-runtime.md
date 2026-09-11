@@ -1,337 +1,339 @@
-# 用户规则统一设计
+# Thiết kế thống nhất quy tắc người dùng
 
-## 一句话
+## Một câu
 
-所有长期写作规则都归一化进同一份本书规则快照；运行时只通过 `novel_context` 注入这份快照，不再把原始规则文本反复塞进 prompt。
+Mọi quy tắc viết dài hạn đều được chuẩn hóa vào cùng một ảnh chụp quy tắc của cuốn sách này; lúc chạy chỉ tiêm ảnh chụp đó qua `novel_context`, không nhồi lại văn bản quy tắc nguyên gốc vào prompt nữa.
 
 ```text
-启动 prompt / 用户 rules 文件 / 运行中长期要求
+prompt khởi động / file rules của người dùng / yêu cầu dài hạn lúc chạy
         ↓
-LLM 语义归一化（按来源）
+LLM chuẩn hóa ngữ nghĩa (theo từng nguồn)
         ↓
-Go 确定性合并（按优先级）  ←  系统默认规则（代码内置，直接进合并，不经 LLM）
+Go hợp nhất tất định (theo ưu tiên)  ←  quy tắc mặc định hệ thống (nhúng trong mã, vào hợp nhất trực tiếp, không qua LLM)
         ↓
 output/novel/meta/user_rules.json
         ↓
-novel_context 注入
+novel_context tiêm vào
         ↓
-Architect / Writer / Editor / commit 检查共用
+Architect / Writer / Editor / kiểm tra commit dùng chung
 ```
 
-## 实现状态（2026-07-19，已落地 + 经 review 修缺）
+## Trạng thái triển khai (2026-07-19, đã lên sóng + đã sửa thiếu sót qua review)
 
-本设计已实现，24 包 `go build` / `go vet` / `go test` 全绿。一轮 code review 后修掉 4 个缺口（均已修复）：①启动 prompt 规则只接在死方法 `Host.Start` 上、真实入口走 `StartPrepared` 而漏建快照——已把原始 prompt 从 quick/cocreate 两条入口直接透传，统一调 `Host.PrepareUserRules`；②快照落盘失败被吞——`PrepareUserRules` 改为落盘失败即返 error 中止开书（resume 路径保持 best-effort，避免给老书引入新失败模式）；③rules 文件读取错误静默跳过——`raw.go` 对非"不存在"错误（权限等）打日志；④README 仍教旧 YAML/front matter 且链向已删文件——已重写。
+Thiết kế này đã được triển khai, 24 package `go build` / `go vet` / `go test` đều xanh. Sau một vòng code review đã sửa 4 thiếu sót (đều đã sửa): ① quy tắc từ prompt khởi động chỉ được nối vào phương thức chết `Host.Start`, còn cửa vào thật đi `StartPrepared` nên bỏ sót việc dựng ảnh chụp — đã truyền thẳng prompt nguyên gốc từ hai cửa vào quick/cocreate, gọi thống nhất `Host.PrepareUserRules`; ② lỗi ghi ảnh chụp xuống đĩa bị nuốt — `PrepareUserRules` đổi thành ghi thất bại thì trả error và hủy mở sách (đường resume giữ best-effort, tránh đưa chế độ thất bại mới vào sách cũ); ③ lỗi đọc file rules bị bỏ im lặng — `raw.go` ghi log cho lỗi không phải "không tồn tại" (quyền v.v.); ④ README vẫn dạy YAML/front matter cũ và trỏ tới file đã xóa — đã viết lại.
 
-落地与本文档基本一致，结构化输出升级后的实现选择如下：
+Bản lên sóng cơ bản khớp tài liệu này; lựa chọn hiện thực sau khi nâng cấp đầu ra có cấu trúc như sau:
 
-1. **归一化只有一份 `Contract.Schema`，不维护两套提示词。**
-   模型声明支持时下发原生 JSON Schema；不支持或能力未知时，统一契约层把同一份 Schema 注入提示词。
-   两种模式都会在 Go 侧复核 Schema，随后执行值域和跨字段业务校验。
-2. **单个字段值非法时降级到"该字段缺失"，而非降级整个来源。**
-   如某字段是空占位或类型非法，sanitize 把该字段丢弃（视为未声明）、保留该来源其余合法字段；
-   只有"整条归一化失败"（网络/模型/非法 JSON/解析失败）才把整个来源降级为 raw preferences、
-   置 `status=degraded`。这样一个坏字段不会连累同来源的其它有效规则。可由模型修复的输出错误会携带
-   精确原因继续自愈，生命周期由 `context` 控制；明确的终止错误进入日志并按来源降级。
+1. **Chuẩn hóa chỉ có một `Contract.Schema`, không duy trì hai bộ prompt.**
+   Khi model khai báo hỗ trợ thì gửi JSON Schema gốc; khi không hỗ trợ hoặc năng lực chưa biết, tầng contract thống nhất tiêm cùng Schema đó vào prompt.
+   Cả hai chế độ đều kiểm lại Schema ở phía Go, sau đó thực thi kiểm tra miền giá trị và ràng buộc nghiệp vụ xuyên trường.
+2. **Khi một giá trị trường không hợp lệ thì hạ cấp thành "trường đó thiếu", không hạ cấp cả nguồn.**
+   Nếu một trường là chỗ giữ chỗ rỗng hoặc sai kiểu, sanitize bỏ trường đó (coi như chưa khai báo) và giữ các trường hợp lệ còn lại của nguồn đó;
+   chỉ khi "cả lần chuẩn hóa thất bại" (mạng/model/JSON không hợp lệ/phân tích thất bại) mới hạ cấp toàn bộ nguồn thành raw preferences và
+   đặt `status=degraded`. Như vậy một trường hỏng không kéo theo các quy tắc hợp lệ khác cùng nguồn. Lỗi đầu ra model sửa được sẽ kèm
+   lý do chính xác để tự sửa tiếp, vòng đời do `context` điều khiển; lỗi kết thúc rõ ràng vào log và hạ cấp theo nguồn.
 
-代码落点：`internal/rules`（纯数据 + 确定性合并：snapshot.go / raw.go / types.go）、`internal/userrules`
-（LLM 归一化 + 编排 + 落盘：normalize.go / service.go）、`internal/store/user_rules.go`（快照存储）、
-`internal/userrules/service.go`（运行中规则落盘）、`assets/prompts/arbiter-intervention.md`（三类分流）。
-系统默认机械基线已从 `assets/rules/default.md` 迁入代码内置 `rules.SystemDefaults()`，YAML 解析路径与
-yaml.v3 依赖已删除。**未验**：真实 LLM 开书 / 运行中 Arbiter rules 动作全链路（normalizer 离线原型已验 10/10）。
+Điểm neo mã: `internal/rules` (thuần dữ liệu + hợp nhất tất định: snapshot.go / raw.go / types.go), `internal/userrules`
+(LLM chuẩn hóa + điều phối + ghi xuống đĩa: normalize.go / service.go), `internal/store/user_rules.go` (lưu ảnh chụp),
+`internal/userrules/service.go` (ghi quy tắc lúc chạy), `assets/prompts/arbiter-intervention.md` (phân ba loại).
+Đường cơ sở cơ học mặc định của hệ thống đã được chuyển từ `assets/rules/default.md` vào bộ nhúng trong mã `rules.SystemDefaultsFor(lang)`, đường phân tích YAML và
+phụ thuộc yaml.v3 đã bị xóa. **Chưa kiểm chứng**: toàn tuyến mở sách bằng LLM thật / hành động rules của Arbiter lúc chạy (nguyên mẫu offline của normalizer đã kiểm 10/10).
 
-## 为什么
+## Vì sao
 
-Writer 每章并不会稳定拿到用户最初的完整 prompt。它主要依赖本章任务和 `novel_context(chapter=N)`。
+Writer mỗi chương không nhận được prompt đầy đủ ban đầu của người dùng một cách ổn định. Nó chủ yếu dựa vào nhiệm vụ của chương này và `novel_context(chapter=N)`.
 
-所以长期规则不能靠对话历史记忆，也不应该靠 regex 从自然语言里偷偷猜。正确做法是：把长期规则显式归一化成状态，再由 `novel_context` 统一分发。
+Nên quy tắc dài hạn không thể dựa vào trí nhớ lịch sử hội thoại, cũng không nên lén đoán từ ngôn ngữ tự nhiên bằng regex. Cách đúng là: chuẩn hóa quy tắc dài hạn thành trạng thái một cách tường minh, rồi để `novel_context` phân phối thống nhất.
 
-这里的“归一化”必须利用大模型的自然语言理解能力，而不是在 Go 里枚举表达方式。程序只定义少量可机械检查字段，负责 schema、确定性合并、校验、落盘和 commit 检查；“每章一千五左右”“单章别超过两千”“不要再写命运齿轮这种话”这类表达由 LLM 语义理解。
+"Chuẩn hóa" ở đây bắt buộc phải tận dụng năng lực hiểu ngôn ngữ tự nhiên của mô hình lớn, chứ không phải liệt kê cách diễn đạt trong Go. Chương trình chỉ định nghĩa một số ít trường kiểm tra cơ học được, phụ trách schema, hợp nhất tất định, kiểm chứng, ghi xuống đĩa và kiểm tra khi commit; những cách nói như "mỗi chương khoảng một nghìn rưỡi", "đừng quá hai nghìn một chương", "đừng viết mấy câu kiểu bánh răng vận mệnh nữa" do LLM hiểu ngữ nghĩa.
 
-## 统一状态
+## Trạng thái thống nhất
 
-本书运行时只维护一份用户规则事实源：
+Lúc chạy, cuốn sách này chỉ duy trì một nguồn sự thật quy tắc người dùng:
 
 ```text
 output/novel/meta/user_rules.json
 ```
 
-形状保持简单：
+Hình dạng giữ đơn giản:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "status": "ready",
   "structured": {
-    "genre": "修仙",
+    "genre": "tu tiên",
     "forbidden_chars": [],
-    "forbidden_phrases": ["某种程度上"],
+    "forbidden_phrases": ["một cách nào đó"],
     "fatigue_words": {}
   },
-  "preferences": "主角冷静克制；少解释，多用行动和对话。",
+  "preferences": "Nhân vật chính lạnh lùng kìm chế; ít giải thích, dùng hành động và đối thoại nhiều hơn.",
   "sources": [
     "startup_prompt",
     ".ainovel/rules/style.md"
   ],
   "uncertain": [
-    "少用比喻：没有明确阈值，按风格偏好处理"
+    "ít dùng so sánh: không có ngưỡng rõ ràng, xử lý như sở thích văn phong"
   ]
 }
 ```
 
-字段边界：
+Ranh giới trường:
 
-- `version`：快照 schema 版本，便于未来迁移。
-- `status`：`ready` / `degraded`，标记归一化是否完整成功；只用于回显与诊断，不进入创作判断。
-- `structured`：代码能机械检查或稳定消费的规则。
-- `preferences`：不能机械检查、但对创作长期有效的自然语言偏好。
-- `sources`：来源审计，不进入创作判断。
-- `uncertain`：归一化诊断，只用于回显和排查，不进入创作判断。
+- `version`: phiên bản schema ảnh chụp, thuận tiện di trú tương lai.
+- `status`: `ready` / `degraded`, đánh dấu việc chuẩn hóa có thành công đầy đủ không; chỉ dùng để hiển thị và chẩn đoán, không vào phán đoán sáng tác.
+- `structured`: quy tắc mã kiểm tra cơ học được hoặc tiêu thụ ổn định được.
+- `preferences`: sở thích ngôn ngữ tự nhiên không kiểm cơ học được nhưng có hiệu lực dài hạn với sáng tác.
+- `sources`: audit nguồn, không vào phán đoán sáng tác.
+- `uncertain`: chẩn đoán chuẩn hóa, chỉ dùng hiển thị và chẩn đoán, không vào phán đoán sáng tác.
 
-注入给模型的只有 `structured` 和 `preferences`；`version` / `status` / `sources` / `uncertain` 是运维与诊断元数据，不进 `working_memory.user_rules`。技术错误不进快照，只进日志（见 §失败与降级）。
+Chỉ `structured` và `preferences` được tiêm cho model; `version` / `status` / `sources` / `uncertain` là metadata vận hành và chẩn đoán, không vào `working_memory.user_rules`. Lỗi kỹ thuật không vào ảnh chụp, chỉ vào log (xem §Thất bại và hạ cấp).
 
-## 输入源
+## Nguồn đầu vào
 
-长期规则有四个输入源：
+Quy tắc dài hạn có bốn nguồn đầu vào:
 
-1. **启动 prompt**：用户开书时写的长期要求。
-2. **用户 rules 文件**：全局或项目级长期偏好，按普通自然语言读取。
-3. **系统默认规则**：代码内置的机械基线。
-4. **运行中长期要求**：用户中途说“以后都怎样”，Arbiter 提取 `rules` 动作，Host 调用 `AddRuntimeRule`。
+1. **Prompt khởi động**: yêu cầu dài hạn người dùng viết khi mở sách.
+2. **File rules của người dùng**: sở thích dài hạn toàn cục hoặc cấp dự án, đọc dưới dạng ngôn ngữ tự nhiên thường.
+3. **Quy tắc mặc định của hệ thống**: đường cơ sở cơ học nhúng trong mã.
+4. **Yêu cầu dài hạn lúc chạy**: người dùng nói giữa chừng "từ sau cứ thế", Arbiter trích ra hành động `rules`, Host gọi `AddRuntimeRule`.
 
-这些输入源不直接进入 Writer prompt，也不在运行时被反复读取。它们只在生成或更新快照时参与归一化，结果合并进 `meta/user_rules.json`。
+Các nguồn này không vào thẳng prompt Writer, cũng không bị đọc lặp lại lúc chạy. Chúng chỉ tham gia chuẩn hóa khi sinh hoặc cập nhật ảnh chụp, kết quả hợp nhất vào `meta/user_rules.json`.
 
-## rules 文件
+## File rules
 
-rules 文件是普通长期提示词，不是运行时 prompt，也不是配置文件。它只作为归一化输入，不支持 YAML：
+File rules là prompt dài hạn thường, không phải prompt lúc chạy, cũng không phải file cấu hình. Nó chỉ là đầu vào cho chuẩn hóa, không hỗ trợ YAML:
 
 ```md
-# 写作偏好
+# Sở thích viết
 
-每章 1200-1600 字。
-主角冷静克制，不要圣母。
-少解释，多用行动和对话推进。
-不要出现“某种程度上”。
+Mỗi chương 1200-1600 chữ.
+Nhân vật chính lạnh lùng kìm chế, đừng thánh mẫu.
+Ít giải thích, dùng hành động và đối thoại để đẩy tiến.
+Đừng xuất hiện "ở một mức độ nào đó".
 ```
 
-系统读取后归一化为：
+Sau khi hệ thống đọc, chuẩn hóa thành:
 
 ```json
 {
   "structured": {
-    "forbidden_phrases": ["某种程度上"]
+    "forbidden_phrases": ["một cách nào đó"]
   },
-  "preferences": "每章 1200-1600 字；主角冷静克制，不要圣母；少解释，多用行动和对话推进。"
+  "preferences": "Mỗi chương 1200-1600 chữ; nhân vật chính lạnh lùng kìm chế, đừng thánh mẫu; ít giải thích, dùng hành động và đối thoại để đẩy tiến."
 }
 ```
 
-如果文件里出现 YAML front matter，也按普通文本处理，不作为结构化声明。结构化结果只来自统一归一化流程。
+Nếu trong file có YAML front matter, cũng xử lý như văn bản thường, không coi là khai báo có cấu trúc. Kết quả có cấu trúc chỉ đến từ luồng chuẩn hóa thống nhất.
 
-启动后如果用户修改 rules 文件，当前书不会自动变化；需要重新生成快照。这样旧书不会因为全局 rules 文件变化而行为漂移。
+Sau khi khởi động, nếu người dùng sửa file rules, cuốn sách hiện tại sẽ không tự đổi; cần sinh lại ảnh chụp. Như vậy sách cũ không trôi dạt hành vi vì file rules toàn cục thay đổi.
 
-## 语义归一化
+## Chuẩn hóa ngữ nghĩa
 
-归一化是独立的、schema 约束的 LLM 调用——每个来源各自归一化一次，不混在创作生成里，也不靠正则表达式或关键词表硬解析。
+Chuẩn hóa là một lệnh gọi LLM độc lập, ràng buộc bởi schema — mỗi nguồn chuẩn hóa riêng một lần, không trộn vào sinh sáng tác, cũng không phân tích cứng bằng regex hay bảng từ khóa.
 
-输入：
+Đầu vào:
 
-- 单一来源的原文（启动 prompt / 一个 rules 文件 / 一条运行中要求）
-- 当前系统支持的 `structured` 字段说明
+- Nguyên văn của một nguồn (prompt khởi động / một file rules / một yêu cầu lúc chạy)
+- Giải thích các trường `structured` hệ thống hiện hỗ trợ
 
-系统默认规则不在此列——它们是代码内置的已编译结构化规则，直接进 §合并规则，不经 normalizer。
+Quy tắc mặc định hệ thống không thuộc nhóm này — chúng là quy tắc có cấu trúc đã biên dịch nhúng trong mã, vào thẳng §Quy tắc hợp nhất, không qua normalizer.
 
-输出：
+Đầu ra:
 
-- 该来源的候选 `structured`
-- 该来源的候选 `preferences`
+- `structured` ứng viên của nguồn đó
+- `preferences` ứng viên của nguồn đó
 - `sources`
 - `uncertain`
 
-Go 侧职责：
+Trách nhiệm phía Go:
 
-- 提供 schema。
-- 校验字段类型和值域。
-- 按 §合并规则的优先级，确定性合并各来源（LLM 不裁定来源优先级）。
-- 保存快照。
-- 在 `novel_context` 注入快照。
-- 在 `commit_chapter` 用同一份快照做机械检查。
+- Cung cấp schema.
+- Kiểm tra kiểu và miền giá trị của trường.
+- Theo ưu tiên ở §Quy tắc hợp nhất, hợp nhất tất định các nguồn (LLM không phán định ưu tiên nguồn).
+- Lưu ảnh chụp.
+- Tiêm ảnh chụp trong `novel_context`.
+- Dùng cùng ảnh chụp đó để kiểm tra cơ học trong `commit_chapter`.
 
-LLM 侧职责：
+Trách nhiệm phía LLM:
 
-- 理解单一来源的自然语言规则。
-- 把明确、可机械检查的规则提升到 `structured`。
-- 把审美、风格、人物偏好保留为 `preferences`。
-- 对不确定内容保持保守，不自行发明阈值。
+- Hiểu quy tắc ngôn ngữ tự nhiên của một nguồn.
+- Nâng các quy tắc rõ ràng, kiểm cơ học được vào `structured`.
+- Giữ sở thích thẩm mỹ, văn phong, nhân vật lại ở `preferences`.
+- Với nội dung chưa chắc chắn thì giữ thận trọng, không tự bịa ngưỡng.
 
-### 保守提升
+### Nâng thận trọng
 
-`structured` 是硬规则或稳定参数，不是“模型猜测区”。提升规则必须保守：
+`structured` là quy tắc cứng hoặc tham số ổn định, không phải "vùng model đoán". Nâng quy tắc phải thận trọng:
 
-- 只有用户明确、无歧义表达时，才写入 `structured`。
-- `forbidden_chars` / `forbidden_phrases` 是 error 级字段，必须尤其保守；只有“不要出现 X”“禁用 X”“别写 X”这类明确禁止才提升。
-- `fatigue_words` 只有用户给出明确词和阈值时才提升；“少用比喻”“别太书面”“减少口头禅”这类无阈值要求进入 `preferences`。
-- 字数/篇幅类意愿（“每章 3000 字”“短一点”）一律进入 `preferences`：章节长短是叙事节奏的语义裁量，不做机械检查——数字化成硬线会诱导模型为跨线注水。
-- 不可机械化、无明确阈值、依赖语境判断的要求都进入 `preferences`。
+- Chỉ khi người dùng diễn đạt rõ ràng, không mơ hồ mới ghi vào `structured`.
+- `forbidden_chars` / `forbidden_phrases` là trường mức error, càng phải thận trọng; chỉ lệnh cấm rõ ràng kiểu "đừng xuất hiện X", "cấm dùng X", "chớ viết X" mới nâng.
+- `fatigue_words` chỉ nâng khi người dùng đưa ra từ cụ thể và ngưỡng; các yêu cầu không ngưỡng như "ít dùng so sánh", "đừng quá sách vở", "bớt cửa miệng" vào `preferences`.
+- Mọi mong muốn về số chữ/độ dài ("mỗi chương 3000 chữ", "ngắn một chút") đều vào `preferences`: ngắn dài chương là phán đoán ngữ nghĩa của nhịp tự sự, không kiểm cơ học — biến thành đường cứng sẽ dụ model châm nước để vượt đường.
+- Yêu cầu không cơ học hóa được, không có ngưỡng rõ ràng, phụ thuộc ngữ cảnh đều vào `preferences`.
 
-原则：
+Nguyên tắc:
 
 ```text
-宁可漏进 structured，降级为软偏好；
-不可错进 structured，制造每章硬误报。
+Thà bỏ sót khỏi structured, hạ cấp thành sở thích mềm;
+không được nâng sai vào structured, tạo báo lỗi cứng mỗi chương.
 ```
 
-漏提炼的代价是风格偏好弱一些；错提炼的代价是每章产生错误规则事实。
+Cái giá bỏ sót là sở thích văn phong yếu đi chút; cái giá nâng sai là sinh sự thật quy tắc sai mỗi chương.
 
-## 失败与降级
+## Thất bại và hạ cấp
 
-归一化是增强路径，不是主创作的前置条件。模型理解失败，绝不能阻断写书。
+Chuẩn hóa là đường tăng cường, không phải tiền điều kiện của sáng tác chính. Model hiểu thất bại tuyệt đối không được chặn việc viết sách.
 
-- **按来源降级**：某个来源归一化失败（网络 / 模型 / 非法 JSON / schema 校验失败），该来源降级为 raw preferences、不产 `structured`；其它成功来源照常贡献 `structured`。
-- **上下文控制自愈**：可重试请求错误、提示词模式的格式/Schema 错误和业务校验错误持续自愈，直到成功或 `context` 结束；不设固定次数。原生契约违约、拒答、截断、错误终止和不可重试请求错误立即暴露并按来源降级。
-- **技术错误进日志**：JSON / schema / 网络等技术错误写入日志，不进 `working_memory.user_rules`，不作为创作输入。
-- **快照标记**：任一来源降级时，快照 `status=degraded`。
-- **能落盘就继续**：只要 `meta/user_rules.json` 能写入，主创作必须继续。
-- **只有落盘失败才中止**：快照无法写入磁盘时才中止，因为后续运行没有稳定事实源。
+- **Hạ cấp theo nguồn**: một nguồn chuẩn hóa thất bại (mạng / model / JSON không hợp lệ / kiểm schema thất bại) thì nguồn đó hạ thành raw preferences, không sinh `structured`; các nguồn thành công khác vẫn đóng góp `structured` như thường.
+- **Tự sửa theo context**: lỗi yêu cầu có thể thử lại, lỗi định dạng/Schema ở chế độ prompt và lỗi kiểm nghiệp vụ tự sửa liên tục cho tới khi thành công hoặc `context` kết thúc; không đặt số lần cố định. Vi phạm contract gốc, từ chối trả lời, cắt cụt, kết thúc lỗi và lỗi yêu cầu không thử lại được đều lộ ra ngay và hạ cấp theo nguồn.
+- **Lỗi kỹ thuật vào log**: lỗi kỹ thuật JSON / schema / mạng ghi vào log, không vào `working_memory.user_rules`, không là đầu vào sáng tác.
+- **Đánh dấu ảnh chụp**: khi bất kỳ nguồn nào hạ cấp thì ảnh chụp `status=degraded`.
+- **Ghi được xuống đĩa thì tiếp tục**: chỉ cần `meta/user_rules.json` ghi được, sáng tác chính phải tiếp tục.
+- **Chỉ thất bại ghi đĩa mới hủy**: chỉ hủy khi ảnh chụp không ghi được xuống đĩa, vì các lần chạy sau không có nguồn sự thật ổn định.
 
-`AddRuntimeRule` 契约（运行中）：normalizer 失败时保存 degraded 快照，
-不把 JSON/schema/网络等归一化错误注入创作流程；只有落盘失败才返回 error。
+Hợp đồng `AddRuntimeRule` (lúc chạy): khi normalizer thất bại thì lưu ảnh chụp degraded,
+không tiêm lỗi chuẩn hóa JSON/schema/mạng vào luồng sáng tác; chỉ thất bại ghi đĩa mới trả error.
 
-## 系统默认规则
+## Quy tắc mặc định của hệ thống
 
-`System defaults` 是代码内置的机械基线，不是用户 rules 文件，也不使用 YAML。
+`System defaults` là đường cơ sở cơ học nhúng trong mã, không phải file rules của người dùng, cũng không dùng YAML.
 
-它不经 LLM 归一化——已是结构化形态，直接作为最低优先级来源进入 §合并规则的 Go 合并。这样默认规则没有 LLM 失败、漂移、成本问题。
+Nó không qua chuẩn hóa LLM — đã ở dạng có cấu trúc, vào thẳng hợp nhất Go ở §Quy tắc hợp nhất với tư cách nguồn ưu tiên thấp nhất. Nhờ đó quy tắc mặc định không có vấn đề thất bại, trôi dạt hay chi phí của LLM.
 
-系统默认机械规则原暂存在 `assets/rules/default.md`（旧实现细节，非要兼容的用户 YAML）；落地本设计时已迁入代码内置 `rules.SystemDefaults()`，YAML 解析路径已删除（见 §实现状态）。
+Quy tắc cơ học mặc định trước đây tạm trú ở `assets/rules/default.md` (chi tiết hiện thực cũ, chỉ để tương thích YAML cho người dùng cố chấp); khi lên sóng thiết kế này đã chuyển vào `rules.SystemDefaultsFor(lang)` nhúng trong mã, đường phân tích YAML đã bị xóa (xem §Trạng thái triển khai).
 
-迁移时保留必要注释说明阈值来源，例如某些疲劳词阈值来自长跑产物实证。这不是为了兼容旧 YAML，而是为了让未来维护者知道默认阈值为什么存在、何时应该调整。
+Khi di trú, giữ lại chú thích cần thiết giải thích nguồn gốc ngưỡng, ví dụ một số ngưỡng từ nhàm đến từ thực nghiệm sản phẩm chạy dài. Không phải để tương thích YAML cũ, mà để người bảo trì tương lai biết ngưỡng mặc định vì sao tồn tại, khi nào nên điều chỉnh.
 
-## 合并规则
+Lưu ý: đường cơ sở tách theo ngôn ngữ — truyện tiếng Việt dùng bảng `systemDefaultsVI`, truyện tiếng Trung dùng `systemDefaultsZH`.
 
-合并顺序按“越具体越优先”：
+## Quy tắc hợp nhất
+
+Thứ tự hợp nhất theo "càng cụ thể càng ưu tiên":
 
 ```text
 System defaults
-→ Global rules 编译结果
-→ Project rules 编译结果
-→ Startup prompt 编译结果
+→ Kết quả biên dịch Global rules
+→ Kết quả biên dịch Project rules
+→ Kết quả biên dịch Startup prompt
 → Runtime user update
 ```
 
-优先级高的来源覆盖低的来源。
+Nguồn ưu tiên cao ghi đè nguồn thấp.
 
-合并由 Go 确定性执行：LLM 只把单一来源的自然语言归一化成候选 `structured`/`preferences`，Go 按上面的顺序做字段覆盖与文本拼接，优先级不交给 LLM 裁定。
+Hợp nhất do Go thực thi tất định: LLM chỉ chuẩn hóa ngôn ngữ tự nhiên của một nguồn thành `structured`/`preferences` ứng viên, Go theo thứ tự trên làm ghi đè trường và nối văn bản, ưu tiên không giao cho LLM phán định.
 
-- `structured`：按字段覆盖，后来源的同名字段覆盖前来源。
-- `preferences`：不互相覆盖，按优先级顺序拼成可读文本（高优先级来源在后），让 LLM 能看到来源次序。
+- `structured`: ghi đè theo trường, trường cùng tên của nguồn sau ghi đè nguồn trước.
+- `preferences`: không ghi đè nhau, nối theo thứ tự ưu tiên thành văn bản dễ đọc (nguồn ưu tiên cao ở sau), để LLM thấy được thứ tự nguồn.
 
-已知局限：`preferences` 按优先级排序，但 Go 不消解冲突。长跑中若用户先后给出相互矛盾的软偏好（如先“冷静克制”后“话痨”），两条都会留在文本里，由 LLM 按次序与上下文权衡；需要确定性硬覆盖的，应表达成可机械化的 `structured` 字段。
+Hạn chế đã biết: `preferences` được sắp theo ưu tiên, nhưng Go không giải quyết xung đột. Trong chạy dài, nếu người dùng lần lượt đưa ra các sở thích mềm mâu thuẫn (ví dụ trước "lạnh lùng kìm chế" sau "nói nhiều"), cả hai sẽ nằm trong văn bản, để LLM cân nhắc theo thứ tự và ngữ cảnh; cái nào cần ghi đè cứng tất định thì nên diễn đạt thành trường `structured` cơ học hóa được.
 
-## 落盘入口
+## Cửa vào ghi xuống đĩa
 
-归一化、合并、落盘是同一套逻辑，但有两个调用方，必须分清，否则会把启动准备混进主创作上下文：
+Chuẩn hóa, hợp nhất, ghi xuống đĩa là cùng một bộ logic, nhưng có hai bên gọi, phải phân biệt rõ, nếu không sẽ trộn việc chuẩn bị khởi động vào ngữ cảnh sáng tác chính:
 
-- **开书 / 刷新（启动侧，确定性）**：由 Host / 启动流程直接调用这套逻辑生成初始快照，不进主创作循环。这是确定性的启动准备任务。
-- **运行中更新（干预裁定动作）**：Arbiter 分诊出的 `rules` 动作由 Host 直接调 `userrules.Service.AddRuntimeRule`，复用同一套校验 / 合并 / 落盘逻辑，把无进度起点的新规则作为 `Runtime user update` 合并进快照。
+- **Mở sách / làm mới (phía khởi động, tất định)**: Host / luồng khởi động gọi thẳng bộ logic này để sinh ảnh chụp ban đầu, không vào vòng lặp sáng tác chính. Đây là nhiệm vụ chuẩn bị khởi động tất định.
+- **Cập nhật lúc chạy (hành động phán định can thiệp)**: hành động `rules` Arbiter phân loại ra được Host gọi thẳng `userrules.Service.AddRuntimeRule`, dùng lại cùng bộ logic kiểm / hợp nhất / ghi đĩa, đưa quy tắc mới không có điểm tiến độ vào ảnh chụp với tư cách `Runtime user update`.
 
-（实现上建议把这套逻辑收敛成一个内部服务，两个调用方共用；具体命名留给实现。）
+(Trong hiện thực, nên thu bộ logic này thành một dịch vụ nội bộ để hai bên gọi dùng chung; tên cụ thể để hiện thực quyết.)
 
-无论哪个调用方，最终都写入同一份 `meta/user_rules.json`。落盘逻辑只做三件事：
+Dù bên gọi nào, cuối cùng đều ghi vào cùng một `meta/user_rules.json`. Logic ghi đĩa chỉ làm ba việc:
 
-1. 校验结构化字段。
-2. 按 §合并规则的优先级合并进当前本书快照。
-3. 返回保存后的完整规则事实。
+1. Kiểm tra trường có cấu trúc.
+2. Theo ưu tiên ở §Quy tắc hợp nhất, hợp nhất vào ảnh chụp hiện tại của cuốn sách.
+3. Trả về sự thật quy tắc đầy đủ sau khi lưu.
 
-不做：
+Không làm:
 
-- 不派发子代理。
-- 不修改大纲。
-- 不静默吞掉非法字段（记录并降级，见 §失败与降级）。
-- 不把原始文本当成最终 prompt 直接注入。
+- Không giao subagent.
+- Không sửa đại cương.
+- Không nuốt im lặng trường không hợp lệ (ghi lại và hạ cấp, xem §Thất bại và hạ cấp).
+- Không tiêm văn bản nguyên gốc vào như prompt cuối cùng.
 
-运行中更新示例：用户说“以后都怎样”（无进度起点）→ Arbiter 裁定为 `rules` 动作 → Host 经 `AddRuntimeRule` 归一化该条 → 作为 `Runtime user update` 以最高优先级合并进快照 → 事件流回显。
+Ví dụ cập nhật lúc chạy: người dùng nói "từ sau cứ thế" (không có điểm tiến độ) → Arbiter phán định thành hành động `rules` → Host qua `AddRuntimeRule` chuẩn hóa mục đó → hợp nhất vào ảnh chụp với tư cách `Runtime user update` ở ưu tiên cao nhất → luồng sự kiện hiển thị lại.
 
-## 回显
+## Hiển thị lại
 
-每次生成或更新 `user_rules` 快照，都必须把归一化结果回显给用户：
+Mỗi lần sinh hoặc cập nhật ảnh chụp `user_rules` đều phải hiển thị kết quả chuẩn hóa cho người dùng:
 
 ```text
-已生成本书规则快照：
-- 机械规则：每章 1200-1600 字；禁用短语“某种程度上”
-- 风格偏好：主角冷静克制；少解释，多用行动和对话推进
-- 未提升为机械规则：少用比喻（无明确阈值，按风格偏好处理）
+Đã sinh ảnh chụp quy tắc của sách:
+- Quy tắc cơ học: mỗi chương 1200-1600 chữ; cấm cụm từ "ở một mức độ nào đó"
+- Sở thích văn phong: nhân vật chính lạnh lùng kìm chế; ít giải thích, dùng hành động và đối thoại để đẩy tiến
+- Chưa nâng thành quy tắc cơ học: ít dùng so sánh (không có ngưỡng rõ ràng, xử lý như sở thích văn phong)
 ```
 
-- 启动 / 刷新：复用现有启动规则日志能力打印快照，不新增机制；共创场景可把回显并入共创确认环节。
-- 运行中：`AddRuntimeRule` 成功后经事件流回显（"写作规则已更新并持久化"）。
-- 降级：`status=degraded` 时，回显明确说明哪些来源未能解析、当前已按 raw preferences 运行、可重新生成快照。
+- Khởi động / làm mới: dùng lại năng lực log quy tắc khởi động sẵn có để in ảnh chụp, không thêm cơ chế mới; ở kịch bản đồng sáng tác có thể gộp hiển thị vào bước xác nhận.
+- Lúc chạy: `AddRuntimeRule` thành công thì hiển thị qua luồng sự kiện ("quy tắc viết đã cập nhật và lưu trữ").
+- Hạ cấp: khi `status=degraded`, phần hiển thị nói rõ nguồn nào chưa phân tích được, hiện đang chạy theo raw preferences, có thể sinh lại ảnh chụp.
 
-回显不是二次审批闸门；它的作用是让用户知道系统理解成了什么，发现错误后可以重新生成快照。
+Hiển thị lại không phải cổng phê duyệt lần hai; tác dụng của nó là để người dùng biết hệ thống hiểu thành gì, phát hiện sai thì sinh lại ảnh chụp.
 
-## Agent 消费方式
+## Cách agent tiêu thụ
 
-所有 agent 只看：
+Mọi agent chỉ xem:
 
 ```json
 working_memory.user_rules
 ```
 
-职责分配：
+Phân công trách nhiệm:
 
-- Architect：按 `preferences` 中的字数意愿调整每章剧情密度和拆章数量。
-- Writer：按 `structured` 的硬规则写作，按 `preferences` 调整风格。
-- Editor：按同一份规则审阅。
-- `commit_chapter`：用 `structured` 做机械检查并返回 violations。
+- Architect: theo mong muốn số chữ trong `preferences` để điều chỉnh mật độ tình tiết và số chương chia mỗi chương.
+- Writer: viết theo quy tắc cứng trong `structured`, điều chỉnh văn phong theo `preferences`.
+- Editor: thẩm duyệt theo cùng bộ quy tắc.
+- `commit_chapter`: dùng `structured` để kiểm tra cơ học và trả violations.
 
-Writer 不重新理解原始启动 prompt，也不读原始 rules 文件。
+Writer không hiểu lại prompt khởi động nguyên gốc, cũng không đọc file rules nguyên gốc.
 
-## 干预分类：三类去向
+## Phân loại can thiệp: ba hướng đi
 
-运行中干预按"要改什么"分三类：
+Can thiệp lúc chạy chia ba loại theo "muốn đổi cái gì":
 
-- **怎么写**（写作笔法 / 风格 / 质量：字数、用词、禁语、句式、对话占比、标题格式等）→ Arbiter `rules` 动作，归一化合并进 `meta/user_rules.json`。例：“每章 1500 字”“标题只用中文”“主角整体冷静克制”“对话占比高一点”。
-- **写什么**（剧情 / 结构 / 人物走向 / 篇幅）→ architect，落进 compass / outline / 角色档案。例：“这一卷多写战斗线”“从第 30 章起主角语气转冷”“增加到 40 章”。
-- **改已写的**（重写 / 修订指定章节）→ editor，入队 PendingRewrites。
+- **Viết thế nào** (bút pháp / văn phong / chất lượng: số chữ, dùng từ, từ cấm, mẫu câu, tỷ lệ đối thoại, định dạng tiêu đề...) → hành động `rules` của Arbiter, chuẩn hóa hợp nhất vào `meta/user_rules.json`. Ví dụ: "mỗi chương 1500 chữ", "tiêu đề chỉ dùng tiếng Việt", "nhân vật chính nói chung lạnh lùng kìm chế", "tăng tỷ lệ đối thoại".
+- **Viết cái gì** (tình tiết / cấu trúc / hướng nhân vật / dung lượng) → architect, rơi vào compass / outline / hồ sơ nhân vật. Ví dụ: "tập này viết nhiều tuyến chiến đấu", "từ chương 30 giọng nhân vật chính chuyển lạnh", "tăng lên 40 chương".
+- **Sửa cái đã viết** (viết lại / tu chỉnh chương chỉ định) → editor, vào hàng đợi PendingRewrites.
 
-判据：**“怎么写” → rules；“写什么” → architect；“改已写的” → editor**。
+Tiêu chí: **"viết thế nào" → rules; "viết cái gì" → architect; "sửa cái đã viết" → editor**.
 
-## 实施步骤
+## Các bước triển khai
 
-1. 新增 `meta/user_rules.json` store。
-2. 新增独立的 LLM 归一化 pass（按来源），使用 schema 约束输出候选 `structured/preferences/sources/uncertain`。
-3. 新增 Go 侧确定性合并：按优先级对各来源做字段覆盖与文本拼接，生成快照。
-4. 把归一化 / 合并 / 落盘收敛成一套逻辑，两个调用方共用：启动侧直接调用生成初始快照；运行中由干预裁定的 `rules` 动作经 `AddRuntimeRule` 复用。失败时按 §失败与降级 处理：来源降级为 raw preferences、快照 `status=degraded`、主创作继续。
-5. 把当前 `assets/rules/default.md` 的系统默认机械规则迁到代码内置结构或 JSON asset，保留阈值来源注释；删除用户 rules 的 YAML 解析路径，不做兼容层。
-6. rules 文件读取后不再直接把正文当 prompt 注入，而是归一化后合并进 `user_rules` 快照。
-7. `novel_context` 只注入 `meta/user_rules.json` 中的 `working_memory.user_rules`。
-8. `commit_chapter` 使用同一份 `user_rules.structured` 检查。
-10. 干预分诊（现由 Arbiter 承担,arbiter-intervention.md）明确按"要改什么"三类分流：写作风格 / 质量类长期要求走 `rules` 动作落快照；剧情 / 结构 / 人物 / 篇幅走 architect；已写章节返工走 editor（详见 §干预分类：三类去向）。
+1. Thêm store `meta/user_rules.json`.
+2. Thêm một lượt chuẩn hóa LLM độc lập (theo từng nguồn), dùng schema ràng buộc đầu ra `structured/preferences/sources/uncertain` ứng viên.
+3. Thêm hợp nhất tất định phía Go: theo ưu tiên làm ghi đè trường và nối văn bản cho từng nguồn, sinh ảnh chụp.
+4. Thu chuẩn hóa / hợp nhất / ghi đĩa thành một bộ logic để hai bên gọi dùng chung: phía khởi động gọi thẳng để sinh ảnh chụp ban đầu; lúc chạy thì hành động `rules` do can thiệp phán định dùng lại qua `AddRuntimeRule`. Khi thất bại xử lý theo §Thất bại và hạ cấp: nguồn hạ thành raw preferences, ảnh chụp `status=degraded`, sáng tác chính tiếp tục.
+5. Chuyển quy tắc cơ học mặc định hiện có trong `assets/rules/default.md` vào cấu trúc nhúng trong mã hoặc asset JSON, giữ chú thích nguồn gốc ngưỡng; xóa đường phân tích YAML cho rules người dùng, không làm lớp tương thích.
+6. Sau khi đọc file rules không tiêm thẳng chính văn như prompt nữa, mà chuẩn hóa rồi hợp nhất vào ảnh chụp `user_rules`.
+7. `novel_context` chỉ tiêm `working_memory.user_rules` từ `meta/user_rules.json`.
+8. `commit_chapter` dùng cùng `user_rules.structured` để kiểm.
+10. Phân loại can thiệp (nay do Arbiter đảm nhiệm, arbiter-intervention.md) phân ba hướng rõ ràng theo "muốn đổi cái gì": yêu cầu dài hạn về văn phong / chất lượng viết đi hành động `rules` vào ảnh chụp; tình tiết / cấu trúc / nhân vật / dung lượng đi architect; làm lại chương đã viết đi editor (xem §Phân loại can thiệp: ba hướng đi).
 
-## 验收标准
+## Tiêu chí nghiệm thu
 
-- 用户启动 prompt 写“每章 1200-1600 字”，Writer 第一章的 `novel_context` 能在 `preferences` 里看到这条意愿原文。
-- rules 文件只写自然语言，也能在生成快照时归一化进同一份 `user_rules`。
-- rules 文件不需要也不支持 YAML；全部按自然语言规则归一化。
-- 运行时不再读取 rules 文件；只读 `meta/user_rules.json`。
-- 默认机械规则不再来自 YAML rules 文件，用户 rules 也没有 YAML 兼容层。
-- 归一化不使用 regex/关键词硬编码；自然语言理解由 LLM 完成。
-- 模糊规则不会被提升为 error 级 `structured` 字段。
-- 系统默认规则不经 LLM，直接进 Go 合并。
-- 来源优先级与字段覆盖由 Go 确定性执行，相同输入产出相同快照。
-- 运行中用户说“以后都怎样”，经 Arbiter rules 动作合并进快照，后续章节的 `novel_context` 能看到更新。
-- 归一化失败不阻断写书：失败来源降级为 raw preferences，快照 `status=degraded`，主创作继续；只有快照无法落盘才中止。
-- 归一化失败返回 `status=degraded`，不把技术错误上抛污染主流程。
-- 生成或更新快照后会回显 `structured` / `preferences` / 未提升项；降级时回显说明降级来源。
-- 新开一本书不会继承上一本书的 `user_rules`。
-- 非法结构化字段不静默忽略：记录并降级该来源，不阻断主流程。
+- Người dùng viết "mỗi chương 1200-1600 chữ" ở prompt khởi động, `novel_context` của chương 1 mà Writer thấy phải có nguyên văn mong muốn đó trong `preferences`.
+- File rules chỉ viết ngôn ngữ tự nhiên cũng chuẩn hóa được vào cùng `user_rules` khi sinh ảnh chụp.
+- File rules không cần cũng không hỗ trợ YAML; tất cả chuẩn hóa theo quy tắc ngôn ngữ tự nhiên.
+- Lúc chạy không đọc lại file rules nữa; chỉ đọc `meta/user_rules.json`.
+- Quy tắc cơ học mặc định không còn đến từ file rules YAML, rules người dùng cũng không có lớp tương thích YAML.
+- Chuẩn hóa không dùng regex/từ khóa cứng; việc hiểu ngôn ngữ tự nhiên do LLM làm.
+- Quy tắc mơ hồ không bị nâng thành trường `structured` mức error.
+- Quy tắc mặc định hệ thống không qua LLM, vào thẳng hợp nhất Go.
+- Ưu tiên nguồn và ghi đè trường do Go thực thi tất định, cùng đầu vào sinh cùng ảnh chụp.
+- Người dùng nói "từ sau cứ thế" lúc chạy, qua hành động rules của Arbiter hợp nhất vào ảnh chụp, `novel_context` các chương sau thấy được cập nhật.
+- Chuẩn hóa thất bại không chặn viết sách: nguồn thất bại hạ thành raw preferences, ảnh chụp `status=degraded`, sáng tác chính tiếp tục; chỉ khi ảnh chụp không ghi được xuống đĩa mới hủy.
+- Chuẩn hóa thất bại trả `status=degraded`, không ném lỗi kỹ thuật lên làm nhiễm luồng chính.
+- Sau khi sinh hoặc cập nhật ảnh chụp sẽ hiển thị `structured` / `preferences` / các mục chưa nâng; khi hạ cấp thì hiển thị nguồn bị hạ cấp.
+- Mở sách mới không kế thừa `user_rules` của sách trước.
+- Trường có cấu trúc không hợp lệ không bị bỏ qua im lặng: ghi lại và hạ cấp nguồn đó, không chặn luồng chính.
 
-## 明确不做（判定不需要，非阶段切割）
+## Dứt khoát không làm (phán định là không cần, không phải cắt giai đoạn)
 
-以下能力在当前需求下没有收益，不进设计，避免过度设计：
+Các năng lực dưới đây không có lợi ích trong nhu cầu hiện tại, không vào thiết kế, tránh thiết kế quá mức:
 
-- `clear_fields` 等字段级删除 / 撤销语义。
-- 监听 rules 文件变化的自动刷新（改了文件就显式重新生成快照即可）。
-- `preferences` 的时间锚点 / 覆盖消解（需要硬覆盖的请用 `structured`）。
-- 在快照里持久化 `diagnostics` 数组（技术错误进日志即可，快照只留 `status`）。
-- schema 字段说明从 Go 类型自动生成（手维护一份简短说明即可）。
+- Ngữ nghĩa xóa / hoàn tác ở mức trường như `clear_fields`.
+- Tự làm mới khi phát hiện file rules thay đổi (sửa file rồi sinh lại ảnh chụp tường minh là đủ).
+- Mốc thời gian cho `preferences` / giải quyết ghi đè (cần ghi đè cứng thì dùng `structured`).
+- Lưu mảng `diagnostics` trong ảnh chụp (lỗi kỹ thuật vào log là đủ, ảnh chụp chỉ giữ `status`).
+- Sinh giải thích trường schema tự động từ kiểu Go (giữ tay một bản giải thích ngắn là đủ).
 
-设计原则不变：LLM 负责理解自然语言，Go 负责确定性合并、校验、落盘和检查。
+Nguyên tắc thiết kế không đổi: LLM chịu trách nhiệm hiểu ngôn ngữ tự nhiên, Go chịu trách nhiệm hợp nhất tất định, kiểm chứng, ghi xuống đĩa và kiểm tra.

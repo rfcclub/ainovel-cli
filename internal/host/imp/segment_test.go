@@ -12,7 +12,7 @@ import (
 )
 
 func TestUnitLessNumericNotLexical(t *testing.T) {
-	// 字典序会判 L900 > L1000、L1257.2 > L1800；数值序必须相反。
+	// Lexicographic order would rank L900 > L1000 and L1257.2 > L1800; numeric order must be the reverse.
 	if !unitLess(SourceUnit{Line: 900}, SourceUnit{Line: 1000}) {
 		t.Fatal("L900 应 < L1000（数值序）")
 	}
@@ -30,7 +30,7 @@ func TestUnitLessNumericNotLexical(t *testing.T) {
 func TestBuildSourceUnitsRoundtrip(t *testing.T) {
 	norm := []byte("第一章\n正文一\n\n第二章\n正文二")
 	units := buildSourceUnits(norm, 0)
-	// 拼回：每个 unit 文本 + 行间 '\n' 应还原归一化文本。
+	// Reassembled: each unit's text plus '\n' between lines should restore the normalised text.
 	var b strings.Builder
 	for i, u := range units {
 		if i > 0 {
@@ -50,7 +50,7 @@ func TestBuildSourceUnitsRoundtrip(t *testing.T) {
 }
 
 func TestBuildSourceUnitsVirtualShard(t *testing.T) {
-	// 一整行远超预算 → 拆多个虚拟 unit，边界在 UTF-8 字符边界。
+	// One line far over budget → split into several virtual units, with boundaries at UTF-8 character boundaries.
 	long := strings.Repeat("字", 100) // 每字 3 字节 = 300 字节
 	units := buildSourceUnits([]byte(long), 30)
 	if len(units) < 2 {
@@ -91,7 +91,7 @@ func TestPlanChunksCoversWithoutGap(t *testing.T) {
 	if len(chunks) < 2 {
 		t.Fatalf("应分多块，得 %d", len(chunks))
 	}
-	// 无缝无重叠且完整覆盖。
+	// Seamless, non-overlapping and fully covering.
 	if chunks[0][0] != 0 || chunks[len(chunks)-1][1] != len(units) {
 		t.Fatal("未完整覆盖")
 	}
@@ -109,7 +109,7 @@ func segFixture() ([]byte, []SourceUnit) {
 
 func TestResolveSegmentationHappy(t *testing.T) {
 	norm, units := segFixture()
-	// L1 前言(front) / L3 第一章 / L5 卷二(group) / L6 第二章
+	// L1 front matter / L3 chapter one / L5 volume two (group) / L6 chapter two
 	decisions := []BoundaryDecision{
 		{UnitID: "L1", Kind: kindFrontMatter, Title: "前言"},
 		{UnitID: "L3", Kind: kindChapter, Title: "第一章 风起"},
@@ -129,7 +129,7 @@ func TestResolveSegmentationHappy(t *testing.T) {
 	if !strings.Contains(seg.Content(norm, 0), "正文一") {
 		t.Fatalf("章一正文不符：%q", seg.Content(norm, 0))
 	}
-	// 覆盖：首段(front_matter)从 0 起，末章覆盖到文本尾。
+	// Coverage: the leading front_matter starts at 0 and the last chapter reaches the end of the text.
 	if len(seg.Matter) == 0 || seg.Matter[0].Kind != kindFrontMatter || seg.Matter[0].Start != 0 {
 		t.Fatalf("首段应为从 0 起的 front_matter：%+v", seg.Matter)
 	}
@@ -160,9 +160,10 @@ func TestResolveSegmentationRejections(t *testing.T) {
 	}
 }
 
-// TestResolveSegmentationReordersAndDedups 守护终局兜底的坐标纪律：块内模型偶发乱序按
-// 字节排序确定性恢复（实测 319 个边界曾败于 1 处倒序，且块缓存会让失败确定性复现）；
-// 同字节重复保留先出现者并记 Notes 交确认预览。
+// TestResolveSegmentationReordersAndDedups guards the final fallback's coordinate discipline: occasional
+// intra-block disorder is restored deterministically by byte sort (measured: 319 boundaries once failed on
+// a single inversion, and the block cache made that failure reproduce deterministically); a duplicate at
+// the same byte keeps the earlier one and records Notes for the confirmation preview.
 func TestResolveSegmentationReordersAndDedups(t *testing.T) {
 	norm, units := segFixture()
 	seg, err := resolveSegmentation(norm, units, []BoundaryDecision{
@@ -183,17 +184,19 @@ func TestResolveSegmentationReordersAndDedups(t *testing.T) {
 	if seg.Chapters[2].Title != "第二章 云涌" {
 		t.Fatalf("同字节重复应保留先出现者：%+v", seg.Chapters[2])
 	}
-	if len(seg.Notes) != 1 || !strings.Contains(seg.Notes[0], "重合") {
+	if len(seg.Notes) != 1 || !strings.Contains(seg.Notes[0], "trùng") {
 		t.Fatalf("重复边界应记入 Notes：%v", seg.Notes)
 	}
 }
 
-// TestResolveSegmentationAbsorbsLeadingText 守护起始漏报的确定性修复：书首简介/广告等非空
-// 头部文本若被模型漏报边界，不得终局否决——漏报已进块缓存，否决会让重跑零调用确定性复现
-// 失败。Go 补一个 front_matter 兜住 [0, first) 并记 Notes 交确认预览。
+// TestResolveSegmentationAbsorbsLeadingText guards the deterministic repair of a missed start: when the
+// model misses the boundary for non-empty leading text (a book-opening blurb or advert), it must not be
+// vetoed at the end — the miss is already in the block cache, and vetoing would make a rerun reproduce
+// the failure deterministically with zero calls. Go adds a front_matter covering [0, first) and records
+// Notes for the confirmation preview.
 func TestResolveSegmentationAbsorbsLeadingText(t *testing.T) {
 	norm, units := segFixture()
-	// 只报了 L3 起的章节：L1/L2 非空文本无归属。
+	// Only chapters from L3 were reported: the non-empty text at L1/L2 has no owner.
 	seg, err := resolveSegmentation(norm, units, []BoundaryDecision{
 		{UnitID: "L3", Kind: kindChapter, Title: "第一章 风起"},
 		{UnitID: "L6", Kind: kindChapter, Title: "第二章 云涌"},
@@ -207,14 +210,15 @@ func TestResolveSegmentationAbsorbsLeadingText(t *testing.T) {
 	if len(seg.Chapters) != 2 || seg.Chapters[0].Start == 0 {
 		t.Fatalf("章节不应吞掉头部文本：%+v", seg.Chapters)
 	}
-	if len(seg.Notes) != 1 || !strings.Contains(seg.Notes[0], "未被模型归属") {
+	if len(seg.Notes) != 1 || !strings.Contains(seg.Notes[0], "không được model gán chủ") {
 		t.Fatalf("应记录人工核对说明：%v", seg.Notes)
 	}
 }
 
-// TestResolveSegmentationNotesDuplicateTitles 守护同名章的可见性：有标题规约的源里章名
-// 不该重复，重复是"同章被误切"的确定性信号——只记 Notes（阻断 --yes、预览呈现）交人工
-// 核对，是否合并不由 Go 裁定。
+// TestResolveSegmentationNotesDuplicateTitles guards the visibility of duplicate chapter names: a source
+// with a title convention should not repeat chapter names, and a repeat is a deterministic signal of
+// "one chapter split twice" — it only records Notes (which block --yes and appear in the preview) for
+// human review, since whether to merge is not Go's call.
 func TestResolveSegmentationNotesDuplicateTitles(t *testing.T) {
 	norm, units := segFixture()
 	seg, err := resolveSegmentation(norm, units, []BoundaryDecision{
@@ -228,15 +232,17 @@ func TestResolveSegmentationNotesDuplicateTitles(t *testing.T) {
 	if len(seg.Chapters) != 2 {
 		t.Fatalf("应得 2 章，得 %d", len(seg.Chapters))
 	}
-	if len(seg.Notes) != 1 || !strings.Contains(seg.Notes[0], "标题相同") {
+	if len(seg.Notes) != 1 || !strings.Contains(seg.Notes[0], "trùng tiêu đề") {
 		t.Fatalf("应记一条同名核对说明：%v", seg.Notes)
 	}
 }
 
-// TestChunkValidatorOwnedDiscipline 守护调用期校验的覆盖面：owned 区内的非法 kind、
-// 坏 anchor、同位语义冲突、首块起始未归属必须在调用期带反馈重问——放行会随块进缓存，
-// 终局 resolve 才发现时重跑零调用复读同一份坏数据；上下文区边界注定被裁掉，不为其重问；
-// 同位完全相同的重复是机械冗余，放行后由 resolve 静默去重。
+// TestChunkValidatorOwnedDiscipline guards the coverage of call-time validation: an invalid kind, a bad
+// anchor, a semantic conflict at the same position or an unowned first-block start inside an owned range
+// must all be re-asked with feedback at call time — letting them through puts them in the block cache, and
+// discovering them only at the final resolve means a rerun reads the same bad data back with zero calls;
+// context-region boundaries are bound to be cut and are never re-queried; an exact duplicate at the same
+// position is mechanical redundancy that resolve silently deduplicates once let through.
 func TestChunkValidatorOwnedDiscipline(t *testing.T) {
 	norm, units := segFixture()
 	unitByID := map[string]SourceUnit{}
@@ -266,7 +272,7 @@ func TestChunkValidatorOwnedDiscipline(t *testing.T) {
 			{UnitID: "L1", Kind: kindChapter, Title: "前言"},
 			{UnitID: "L1", Kind: kindChapter, Title: "前言"},
 		}, false},
-		// 标题回显：章名/卷名必须真实存在于边界单元原文——幻影边界的编造标题在此被拦。
+		// Title echo-back: a chapter/volume name must genuinely exist in the boundary unit's original text — a fabricated title on a phantom boundary is stopped here.
 		{"编造章节标题重问", []BoundaryDecision{{UnitID: "L2", Kind: kindChapter, Title: "第某章 我编的"}}, true},
 		{"归纳标题须 uncertain 放行", []BoundaryDecision{{UnitID: "L2", Kind: kindChapter, Title: "第某章 我编的", Uncertain: true}}, false},
 		{"回显容忍空白差异", []BoundaryDecision{{UnitID: "L3", Kind: kindChapter, Title: "第一章风起"}}, false},
@@ -281,7 +287,7 @@ func TestChunkValidatorOwnedDiscipline(t *testing.T) {
 		})
 	}
 
-	// 首块起始覆盖：L1/L2 非空却无边界归属 → 重问；补上起点边界后通过。
+	// First-block start coverage: L1/L2 are non-empty with no boundary owning them → re-ask; it passes once the start boundary is supplied.
 	vs := v
 	vs.coverStart = true
 	if err := vs.validate([]BoundaryDecision{{UnitID: "L3", Kind: kindChapter}}); err == nil {
@@ -297,12 +303,13 @@ func TestChunkValidatorOwnedDiscipline(t *testing.T) {
 	}
 }
 
-// TestSegmentClearsChunksOnResolveFailure 守护「缓存确定性复现」的总闸：终局整合失败时
-// 块缓存已无价值（digest 恒匹配，重跑零调用复读同一批边界再死一次），必须清除换取下次
-// 重新切分的模型机会；决策快照经 errSemantic 统一落 failures/。
+// TestSegmentClearsChunksOnResolveFailure guards the master switch against "deterministic cache
+// reproduction": on a final integration failure the block cache is worthless (the digest always matches,
+// so a rerun reads the same boundaries back with zero calls and dies again), so it must be cleared to buy
+// a fresh segmentation opportunity; the decision snapshot lands in failures/ through errSemantic.
 func TestSegmentClearsChunksOnResolveFailure(t *testing.T) {
 	norm, units := segFixture()
-	// 模型把全书标成 front_matter：无章节，Go 无法确定性修复，终局失败。
+	// The model marks the whole book as front_matter: no chapters, which Go cannot repair deterministically, so it fails at the end.
 	m := &mockModel{responses: []string{boundariesJSON(boundaryFixture("L1", "", kindFrontMatter, "前言"))}}
 	w := &Workspace{dir: t.TempDir()}
 	_, err := Segment(context.Background(), m, "sys", norm, units, "", 0, 0, 4096, callProfile{}, w, "id-1")
@@ -318,8 +325,8 @@ func TestSegmentClearsChunksOnResolveFailure(t *testing.T) {
 	}
 }
 
-// mockModel 顺序返回预设响应，供 typed-call 契约测试。
-// stops 可为每次调用指定 stop reason；缺省用 stop 或 StopReasonStop。
+// mockModel returns preset responses in order, for typed-call contract tests.
+// stops can set a stop reason per call; by default it uses stop or StopReasonStop.
 type mockModel struct {
 	responses []string
 	stops     []agentcore.StopReason
@@ -345,8 +352,9 @@ func (m *mockModel) Generate(_ context.Context, _ []agentcore.Message, _ []agent
 	}}, nil
 }
 
-// TestResolveSegmentationSingleLineChapters 守护 #9：无换行的单行段（锚点切分场景）整段即正文，
-// 单行/单行多章小说不应被误判"正文为空"拒绝。
+// TestResolveSegmentationSingleLineChapters guards #9: in a single-line segment with no newline (the
+// anchor-split case) the whole segment is the prose, and a single-line or single-line multi-chapter novel
+// must not be rejected as "empty prose".
 func TestResolveSegmentationSingleLineChapters(t *testing.T) {
 	normalized := []byte("第一章甲的故事第二章乙的故事") // 整篇一行，无换行
 	units := buildSourceUnits(normalized, 0)
@@ -384,12 +392,14 @@ func TestSegmentWithMockModel(t *testing.T) {
 	}
 }
 
-// TestResolveSegmentationAbsorbsEmptyChapter 守护脏源容错：真实网络小说源常见"已锁定/付费章节"
-// 占位标题（标题在、正文缺失）。这类边界不得整体失败——终局一票否决会浪费切分阶段全部模型调用；
-// 占位段并入前段（文本一字不丢），记入 Notes 由确认预览呈现人工核对。
+// TestResolveSegmentationAbsorbsEmptyChapter guards tolerance for dirty sources: real web-novel sources
+// commonly carry "locked / paid chapter" placeholder titles (the title exists, the prose does not). Such a
+// boundary must not fail everything — an outright veto would waste every model call of the segmentation
+// stage; the placeholder span merges into the preceding one (losing not a character) and Notes records it
+// for human review in the confirmation preview.
 func TestResolveSegmentationAbsorbsEmptyChapter(t *testing.T) {
 	norm, units := segFixture()
-	// L5 "卷二" 行被模型标成章节标题：其 span [L5,L6) 无正文 → 并入第一章。
+	// The L5 "volume two" line was marked a chapter title by the model: its span [L5,L6) has no prose → merged into chapter one.
 	decisions := []BoundaryDecision{
 		{UnitID: "L1", Kind: kindFrontMatter, Title: "前言"},
 		{UnitID: "L3", Kind: kindChapter, Title: "第一章 风起"},
@@ -406,10 +416,10 @@ func TestResolveSegmentationAbsorbsEmptyChapter(t *testing.T) {
 	if got := seg.Content(norm, 0); !strings.Contains(got, "卷二") {
 		t.Fatalf("占位段应并入第一章（文本不丢）：%q", got)
 	}
-	if len(seg.Notes) != 1 || !strings.Contains(seg.Notes[0], "已锁定") {
+	if len(seg.Notes) != 1 || !strings.Contains(seg.Notes[0], "chương khóa/trả phí") {
 		t.Fatalf("应记录一条人工核对说明：%v", seg.Notes)
 	}
-	// 首点即空正文章节：无前段可并 → 落为 front_matter，同样不失败。
+	// The first boundary is itself an empty-prose chapter with nothing before it to merge into → it becomes front_matter, likewise without failing.
 	seg, err = resolveSegmentation(norm, units, []BoundaryDecision{
 		{UnitID: "L1", Kind: kindChapter, Title: "占位"}, // [L1,L2) 单行标题无正文
 		{UnitID: "L2", Kind: kindChapter, Title: "第一章"},
@@ -422,17 +432,20 @@ func TestResolveSegmentationAbsorbsEmptyChapter(t *testing.T) {
 	}
 }
 
-// TestSegmentClipsContextBoundaries 守护坐标纪律的 Go 侧执行：模型在上下文区返回的边界
-// 不触发语义重问（弱模型常 3 次耗尽拖垮整块），由代码直接裁掉——该边界归相邻块管辖，
-// 相邻块会在自己的 owned 区间报告它，保留会造成跨块重复/乱序。
+// TestSegmentClipsContextBoundaries guards Go-side enforcement of coordinate discipline: a boundary the
+// model returns in a context region does not trigger a semantic re-ask (weak models often burn all three
+// attempts and drag the block down) but is cut by code — that boundary belongs to the neighbouring block,
+// which reports it within its own owned range, and keeping it would cause cross-block duplicates or
+// disorder.
 func TestSegmentClipsContextBoundaries(t *testing.T) {
 	norm, units := segFixture()
 	chunks := planChunks(units, planningBudget(40, "sys", "")) // 与 Segment 内部规划一致
 	if len(chunks) < 2 {
 		t.Fatalf("fixture 应分出至少 2 块，得 %d", len(chunks))
 	}
-	// 每块响应：owned 首单元一个章节边界（无标题走 firstLine 回退，规避标题回显核对——
-	// 这里测的是坐标纪律）；第一块额外夹带一个下一块首单元（上下文区）的边界。
+	// Per-block response: one chapter boundary at the first owned unit (no title, taking the firstLine
+	// fallback and sidestepping the title echo-back check — this tests coordinate discipline); the first
+	// block additionally smuggles in a boundary for the next block's first unit (in the context region).
 	responses := make([]string, len(chunks))
 	for ci, owned := range chunks {
 		boundaries := []map[string]any{boundaryFixture(units[owned[0]].ID, "", kindChapter, "")}
@@ -441,10 +454,10 @@ func TestSegmentClipsContextBoundaries(t *testing.T) {
 		}
 		responses[ci] = boundariesJSON(boundaries...)
 	}
-	// 裁剪说明走普通进度回显（例行坐标纪律，非警示——warn 色会让用户误以为出错）。
+	// The clipping note echoes as ordinary progress (routine coordinate discipline, not a warning — a warn colour would make users think something went wrong).
 	var clipNotes int
 	prof := callProfile{progress: func(_, _ int, s string) {
-		if strings.Contains(s, "裁掉") {
+		if strings.Contains(s, "cắt bỏ") {
 			clipNotes++
 		}
 	}}
@@ -460,8 +473,10 @@ func TestSegmentClipsContextBoundaries(t *testing.T) {
 	}
 }
 
-// TestSegmentReusesChunkArtifacts 守护块级断点：切分逐块落盘边界缓存，重跑时 digest 匹配的块
-// 零模型调用直接复用——切分是最昂贵阶段，任何一块失败不应重付已完成块（与 analyze/synthesize 同哲学）。
+// TestSegmentReusesChunkArtifacts guards the block-level breakpoint: segmentation persists a boundary
+// cache per block and a rerun reuses a digest-matching block directly at zero model calls — segmentation is
+// the most expensive stage, and a failure on any block must not re-pay for finished ones (the same
+// philosophy as analyze/synthesize).
 func TestSegmentReusesChunkArtifacts(t *testing.T) {
 	norm, units := segFixture()
 	chunks := planChunks(units, planningBudget(40, "sys", "")) // 与 Segment 内部规划一致
@@ -489,7 +504,7 @@ func TestSegmentReusesChunkArtifacts(t *testing.T) {
 	if len(seg2.Chapters) != len(seg1.Chapters) {
 		t.Fatalf("复用结果应一致：%d != %d", len(seg2.Chapters), len(seg1.Chapters))
 	}
-	// 身份变化（换 prompt 版本/指导/源）→ 缓存自然失配，全部重做。
+	// An identity change (a new prompt version / guidance / source) → the cache misses naturally and everything is redone.
 	m3 := &mockModel{responses: responses}
 	if _, err := Segment(context.Background(), m3, "sys", norm, units, "", 40, 2, 4096, callProfile{}, w, "id-2"); err != nil {
 		t.Fatalf("身份变化重跑：%v", err)
@@ -499,8 +514,9 @@ func TestSegmentReusesChunkArtifacts(t *testing.T) {
 	}
 }
 
-// TestSegmentShrinksChunkOnTruncation 守护输出预算回路：大量短章节会让单块边界 JSON
-// 超出可见输出（stop=length），必须对半缩块重试而非整体失败——与 analyze 缩批同哲学。
+// TestSegmentShrinksChunkOnTruncation guards the output-budget feedback loop: many short chapters make a
+// single block's boundary JSON exceed the visible output (stop=length), so the block must be halved and
+// retried rather than failing wholesale — the same philosophy as shrinking analyze batches.
 func TestSegmentShrinksChunkOnTruncation(t *testing.T) {
 	norm, units := segFixture() // 7 个 unit，单块 [0,7)，mid=3
 	left := boundariesJSON(boundaryFixture("L1", "", kindChapter, ""))
@@ -521,7 +537,7 @@ func TestSegmentShrinksChunkOnTruncation(t *testing.T) {
 	}
 }
 
-// TestPlanningBudget 守护切分规划预算的结构性开销扣除：owned 正文只是请求的一部分。
+// TestPlanningBudget guards the deduction of structural overhead from the segmentation planning budget: the owned prose is only part of the request.
 func TestPlanningBudget(t *testing.T) {
 	if got := planningBudget(0, "sys", "g"); got != 0 {
 		t.Fatalf("无预算应透传，得 %d", got)
@@ -534,8 +550,9 @@ func TestPlanningBudget(t *testing.T) {
 	}
 }
 
-// TestBuildProjectionContextByteCap 守护上下文区字节上限：超长行虚拟分片（单片可达
-// MaxUnitBytes）会吞掉输入预算，上下文只是参考信息，按字节上限收缩而非照单全收。
+// TestBuildProjectionContextByteCap guards the context region's byte cap: an over-long line's virtual
+// fragments (a single fragment can reach MaxUnitBytes) swallow the input budget, and since context is only
+// reference material it shrinks to the byte cap rather than being taken wholesale.
 func TestBuildProjectionContextByteCap(t *testing.T) {
 	_, units := segFixture()
 	if _, ids := buildProjection(units, [2]int{2, 3}, 2, 1, ""); len(ids) != 1 || !ids["L3"] {

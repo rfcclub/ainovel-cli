@@ -17,7 +17,7 @@ type StyleIndex interface {
 	ChapterCommitted(chapter int, text string)
 }
 
-var errPreparedStale = errors.New("修订分析已过期")
+var errPreparedStale = errors.New("phân tích tu chỉnh đã hết hiệu lực")
 
 type Result struct {
 	Changed  []int
@@ -39,7 +39,7 @@ func NewService(st *store.Store, model agentcore.ChatModel, prompt string, style
 func (s *Service) Sync(ctx context.Context) (*Result, error) {
 	pending, err := s.store.Revisions.LoadPending()
 	if err != nil {
-		return nil, fmt.Errorf("读取修订恢复记录: %w", err)
+		return nil, fmt.Errorf("đọc bản ghi khôi phục tu chỉnh: %w", err)
 	}
 	if pending != nil {
 		return s.applyPending(*pending)
@@ -61,9 +61,9 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 		previous, err := s.store.ChapterRecords.Load(change.Chapter)
 		if err != nil || previous == nil {
 			if err == nil {
-				err = fmt.Errorf("接纳记录不存在")
+				err = fmt.Errorf("bản ghi tiếp nhận không tồn tại")
 			}
-			return nil, fmt.Errorf("读取第 %d 章基线: %w", change.Chapter, err)
+			return nil, fmt.Errorf("đọc đường cơ sở chương %d: %w", change.Chapter, err)
 		}
 		downstream, err := s.downstreamSummaries(change.Chapter, proposedSummaries)
 		if err != nil {
@@ -93,12 +93,12 @@ func (s *Service) Sync(ctx context.Context) (*Result, error) {
 		result.Analyses = append(result.Analyses, item.Analysis)
 	}
 	if err := s.validatePendingRecords(items); err != nil {
-		return nil, fmt.Errorf("校验修订后的章节状态: %w", err)
+		return nil, fmt.Errorf("kiểm tra trạng thái chương sau tu chỉnh: %w", err)
 	}
 	now := time.Now()
 	pending = &domain.PendingRevision{Stage: domain.RevisionStagePrepared, Items: items, StartedAt: now, UpdatedAt: now}
 	if err := s.store.Revisions.SavePending(*pending); err != nil {
-		return nil, fmt.Errorf("保存修订恢复记录: %w", err)
+		return nil, fmt.Errorf("lưu bản ghi khôi phục tu chỉnh: %w", err)
 	}
 	applied, err := s.applyPending(*pending)
 	if err != nil {
@@ -115,7 +115,7 @@ func (s *Service) applyPending(pending domain.PendingRevision) (*Result, error) 
 		if err := s.applyPreparedRecords(pending.Items); err != nil {
 			if errors.Is(err, errPreparedStale) {
 				if clearErr := s.store.Revisions.ClearPending(); clearErr != nil {
-					return nil, fmt.Errorf("%v；清理过期修订分析失败: %w", err, clearErr)
+					return nil, fmt.Errorf("%v; dọn phân tích tu chỉnh hết hiệu lực thất bại: %w", err, clearErr)
 				}
 			}
 			return nil, err
@@ -130,7 +130,7 @@ func (s *Service) applyPending(pending domain.PendingRevision) (*Result, error) 
 		progress, err := s.store.Progress.Load()
 		if err != nil || progress == nil {
 			if err == nil {
-				err = fmt.Errorf("progress 未初始化")
+				err = fmt.Errorf("progress chưa được khởi tạo")
 			}
 			return nil, err
 		}
@@ -139,17 +139,17 @@ func (s *Service) applyPending(pending domain.PendingRevision) (*Result, error) 
 			return nil, err
 		}
 		if err := NewProjector(s.store).Apply(records); err != nil {
-			return nil, fmt.Errorf("重建章节派生状态: %w", err)
+			return nil, fmt.Errorf("dựng lại trạng thái dẫn xuất của chương: %w", err)
 		}
 		if len(pending.Items) > 0 {
 			if err := s.store.InvalidateChapterAggregates(pending.Items[0].Chapter); err != nil {
-				return nil, fmt.Errorf("失效修订后的高层派生状态: %w", err)
+				return nil, fmt.Errorf("vô hiệu hóa trạng thái dẫn xuất cấp cao sau tu chỉnh: %w", err)
 			}
 		}
 		for _, item := range pending.Items {
 			if slices.Contains(progress.PendingRewrites, item.Chapter) {
 				if err := s.store.Progress.CompleteRewrite(item.Chapter); err != nil {
-					return nil, fmt.Errorf("完成第 %d 章人工返工: %w", item.Chapter, err)
+					return nil, fmt.Errorf("hoàn tất làm lại thủ công chương %d: %w", item.Chapter, err)
 				}
 			}
 		}
@@ -165,7 +165,7 @@ func (s *Service) applyPending(pending domain.PendingRevision) (*Result, error) 
 					feedback.Suggestion = analysis.OutlineImpact.Suggestion
 				}
 				if err := s.store.Outline.AppendOutlineFeedback(feedback); err != nil {
-					return nil, fmt.Errorf("保存第 %d 章大纲影响: %w", item.Chapter, err)
+					return nil, fmt.Errorf("lưu ảnh hưởng đại cương của chương %d: %w", item.Chapter, err)
 				}
 			}
 		}
@@ -178,14 +178,14 @@ func (s *Service) applyPending(pending domain.PendingRevision) (*Result, error) 
 	case domain.RevisionStageProjectionsApplied:
 		for _, item := range pending.Items {
 			if _, err := s.store.Checkpoints.AppendArtifact(domain.ChapterScope(item.Chapter), "revision_sync", store.ChapterRecordPath(item.Chapter)); err != nil {
-				return nil, fmt.Errorf("记录第 %d 章修订 checkpoint: %w", item.Chapter, err)
+				return nil, fmt.Errorf("ghi checkpoint tu chỉnh chương %d: %w", item.Chapter, err)
 			}
 		}
 	default:
-		return nil, fmt.Errorf("未知修订恢复阶段 %q", pending.Stage)
+		return nil, fmt.Errorf("giai đoạn khôi phục tu chỉnh không xác định %q", pending.Stage)
 	}
 	if err := s.store.Revisions.ClearPending(); err != nil {
-		return nil, fmt.Errorf("清理修订恢复记录: %w", err)
+		return nil, fmt.Errorf("dọn bản ghi khôi phục tu chỉnh: %w", err)
 	}
 	result := &Result{}
 	for _, item := range pending.Items {
@@ -202,27 +202,27 @@ func (s *Service) applyPreparedRecords(items []domain.PendingRevisionItem) error
 	for _, item := range items {
 		content, err := s.store.Drafts.LoadChapterText(item.Chapter)
 		if err != nil {
-			return fmt.Errorf("读取第 %d 章工作区正文: %w", item.Chapter, err)
+			return fmt.Errorf("đọc chính văn workspace của chương %d: %w", item.Chapter, err)
 		}
 		if domain.ChapterContentSHA256(content) != item.CurrentSHA256 {
-			return fmt.Errorf("%w：第 %d 章在分析后再次发生变化，请重新执行 /sync", errPreparedStale, item.Chapter)
+			return fmt.Errorf("%w: chương %d lại thay đổi sau khi phân tích, hãy chạy lại /sync", errPreparedStale, item.Chapter)
 		}
 		current, err := s.store.ChapterRecords.Load(item.Chapter)
 		if err != nil {
 			return err
 		}
 		if current == nil {
-			return fmt.Errorf("第 %d 章接纳记录不存在", item.Chapter)
+			return fmt.Errorf("bản ghi tiếp nhận chương %d không tồn tại", item.Chapter)
 		}
 		switch {
 		case sameChapterRecord(*current, item.Record):
 			continue
 		case current.ContentSHA256 == item.BaseSHA256 && current.Revision+1 == item.Record.Revision:
 			if err := s.store.ChapterRecords.Save(item.Record); err != nil {
-				return fmt.Errorf("接纳第 %d 章修订: %w", item.Chapter, err)
+				return fmt.Errorf("tiếp nhận tu chỉnh chương %d: %w", item.Chapter, err)
 			}
 		default:
-			return fmt.Errorf("%w：第 %d 章接纳记录在分析后发生变化，请重新执行 /sync", errPreparedStale, item.Chapter)
+			return fmt.Errorf("%w: bản ghi tiếp nhận chương %d thay đổi sau khi phân tích, hãy chạy lại /sync", errPreparedStale, item.Chapter)
 		}
 	}
 	return nil
@@ -239,7 +239,7 @@ func (s *Service) validatePendingRecords(items []domain.PendingRevisionItem) err
 	progress, err := s.store.Progress.Load()
 	if err != nil || progress == nil {
 		if err == nil {
-			err = fmt.Errorf("progress 未初始化")
+			err = fmt.Errorf("progress chưa được khởi tạo")
 		}
 		return err
 	}
@@ -265,7 +265,7 @@ func (s *Service) downstreamSummaries(chapter int, proposed map[int]domain.Chapt
 		return nil, err
 	}
 	if progress == nil {
-		return nil, fmt.Errorf("progress 未初始化")
+		return nil, fmt.Errorf("progress chưa được khởi tạo")
 	}
 	chapters := slices.Clone(progress.CompletedChapters)
 	slices.Sort(chapters)
@@ -280,10 +280,10 @@ func (s *Service) downstreamSummaries(chapter int, proposed map[int]domain.Chapt
 		}
 		summary, err := s.store.Summaries.LoadSummary(current)
 		if err != nil {
-			return nil, fmt.Errorf("读取第 %d 章摘要: %w", current, err)
+			return nil, fmt.Errorf("đọc tóm tắt chương %d: %w", current, err)
 		}
 		if summary == nil {
-			return nil, fmt.Errorf("第 %d 章缺少摘要，无法完整分析后续影响", current)
+			return nil, fmt.Errorf("chương %d thiếu tóm tắt, không thể phân tích đầy đủ ảnh hưởng về sau", current)
 		}
 		summaries = append(summaries, *summary)
 	}

@@ -43,7 +43,7 @@ type releaseAsset struct {
 
 func Update(ctx context.Context, opts UpdateOptions) (*UpdateResult, error) {
 	if runtime.GOOS == "windows" {
-		return nil, fmt.Errorf("Windows 不支持原地自更新，请到 https://github.com/%s/releases 下载新版", opts.Repo)
+		return nil, fmt.Errorf("Windows không hỗ trợ tự cập nhật tại chỗ, hãy tải bản mới tại https://github.com/%s/releases", opts.Repo)
 	}
 	if opts.Repo == "" {
 		return nil, fmt.Errorf("missing repo")
@@ -61,7 +61,7 @@ func Update(ctx context.Context, opts UpdateOptions) (*UpdateResult, error) {
 		return nil, err
 	}
 	if rel.TagName == "" {
-		return nil, fmt.Errorf("release 缺少 tag_name")
+		return nil, fmt.Errorf("release thiếu tag_name")
 	}
 	if sameVersion(opts.CurrentVersion, rel.TagName) {
 		return &UpdateResult{Version: rel.TagName, Path: executablePath()}, nil
@@ -150,7 +150,7 @@ func selectAsset(rel *release, binaryName string) (releaseAsset, error) {
 			}
 		}
 	}
-	return releaseAsset{}, fmt.Errorf("release %s 未找到当前平台的精确安装包 %s_<version>%s", rel.TagName, binaryName, suffix)
+	return releaseAsset{}, fmt.Errorf("release %s không tìm thấy gói cài đặt chính xác cho nền tảng hiện tại %s_<version>%s", rel.TagName, binaryName, suffix)
 }
 
 func selectChecksumAsset(rel *release, binaryName string) (releaseAsset, error) {
@@ -160,7 +160,7 @@ func selectChecksumAsset(rel *release, binaryName string) (releaseAsset, error) 
 			return asset, nil
 		}
 	}
-	return releaseAsset{}, fmt.Errorf("release %s 缺少校验文件 %s，拒绝自更新", rel.TagName, expected)
+	return releaseAsset{}, fmt.Errorf("release %s thiếu file kiểm tra %s, từ chối tự cập nhật", rel.TagName, expected)
 }
 
 func assetSuffix() (string, error) {
@@ -171,7 +171,7 @@ func assetSuffix() (string, error) {
 	case "linux":
 		osName = "Linux"
 	default:
-		return "", fmt.Errorf("不支持的系统 %s", runtime.GOOS)
+		return "", fmt.Errorf("hệ điều hành không được hỗ trợ %s", runtime.GOOS)
 	}
 	var arch string
 	switch runtime.GOARCH {
@@ -180,7 +180,7 @@ func assetSuffix() (string, error) {
 	case "arm64":
 		arch = "arm64"
 	default:
-		return "", fmt.Errorf("不支持的架构 %s", runtime.GOARCH)
+		return "", fmt.Errorf("kiến trúc không được hỗ trợ %s", runtime.GOARCH)
 	}
 	return "_" + osName + "_" + arch + ".tar.gz", nil
 }
@@ -213,8 +213,9 @@ func download(ctx context.Context, client *http.Client, url, dst string, expecte
 	return nil
 }
 
-// verifyChecksum 校验 GoReleaser 生成的 SHA256 清单。清单与安装包必须来自同一个
-// release；缺项、格式错误或摘要不匹配均拒绝替换当前可执行文件。
+// verifyChecksum validates the SHA256 manifest GoReleaser generates. The manifest and the
+// installer must come from the same release; a missing entry, bad format or mismatched digest
+// all refuse to replace the current executable.
 func verifyChecksum(archivePath, checksumPath, assetName string) error {
 	data, err := os.ReadFile(checksumPath)
 	if err != nil {
@@ -233,10 +234,10 @@ func verifyChecksum(archivePath, checksumPath, assetName string) error {
 		}
 	}
 	if expected == "" {
-		return fmt.Errorf("checksum 清单中未找到 %s", assetName)
+		return fmt.Errorf("không tìm thấy %s trong manifest checksum", assetName)
 	}
 	if len(expected) != sha256.Size*2 {
-		return fmt.Errorf("%s 的 SHA256 格式非法", assetName)
+		return fmt.Errorf("định dạng SHA256 của %s không hợp lệ", assetName)
 	}
 	f, err := os.Open(archivePath)
 	if err != nil {
@@ -249,7 +250,7 @@ func verifyChecksum(archivePath, checksumPath, assetName string) error {
 	}
 	actual := fmt.Sprintf("%x", h.Sum(nil))
 	if actual != expected {
-		return fmt.Errorf("%s SHA256 校验失败：got %s, expected %s", assetName, actual, expected)
+		return fmt.Errorf("%s kiểm tra SHA256 thất bại: nhận %s, mong đợi %s", assetName, actual, expected)
 	}
 	return nil
 }
@@ -291,7 +292,7 @@ func extractBinary(archivePath, dstDir, binaryName string) (string, error) {
 		}
 		return out, nil
 	}
-	return "", fmt.Errorf("安装包中未找到 %s", binaryName)
+	return "", fmt.Errorf("không tìm thấy %s trong gói cài đặt", binaryName)
 }
 
 func replaceCurrentExecutable(src string) (string, error) {
@@ -300,7 +301,7 @@ func replaceCurrentExecutable(src string) (string, error) {
 
 func replaceExecutable(dst, src string) (string, error) {
 	if dst == "" {
-		return "", fmt.Errorf("无法定位当前可执行文件")
+		return "", fmt.Errorf("không xác định được file thực thi hiện tại")
 	}
 	if real, err := filepath.EvalSymlinks(dst); err == nil {
 		dst = real

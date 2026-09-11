@@ -31,13 +31,15 @@ type legacyCommitArgs struct {
 	domain.ChapterFacts
 }
 
-// MigrateLegacyBaseline 为 chapter_records 出现前创建的作品补齐接纳基线。
-// 成功提交会话保存完整章节事实，草稿保存当时的正文；只使用这两份历史事实，
-// 不会把可能已被用户修改的 chapters/*.md 静默当成已接纳版本。
+// MigrateLegacyBaseline backfills an acceptance baseline for works created before
+// chapter_records existed.
+// A successful commit session stores the full chapter facts and the draft stores the prose of the
+// time; only these two historical facts are used, so a chapters/*.md that the user may have edited
+// is never silently treated as the accepted version.
 func MigrateLegacyBaseline(st *store.Store) error {
 	progress, err := st.Progress.Load()
 	if err != nil {
-		return fmt.Errorf("读取进度: %w", err)
+		return fmt.Errorf("đọc tiến độ: %w", err)
 	}
 	if progress == nil || len(progress.CompletedChapters) == 0 {
 		return nil
@@ -75,17 +77,17 @@ func MigrateLegacyBaseline(st *store.Store) error {
 			}
 		}
 		if !ok {
-			return fmt.Errorf("第 %d 章缺少可验证的成功提交或导入分析记录，无法建立修订基线", chapter)
+			return fmt.Errorf("chương %d thiếu bản ghi commit thành công hoặc phân tích nhập liệu có thể kiểm chứng, không thể lập đường cơ sở tu chỉnh", chapter)
 		}
 		if err := chapterfacts.Validate(commit.facts); err != nil {
-			return fmt.Errorf("第 %d 章历史提交事实无效: %w", chapter, err)
+			return fmt.Errorf("sự thật commit lịch sử của chương %d không hợp lệ: %w", chapter, err)
 		}
 		draft, err := st.Drafts.LoadDraft(chapter)
 		if err != nil {
-			return fmt.Errorf("读取第 %d 章历史草稿: %w", chapter, err)
+			return fmt.Errorf("đọc bản nháp lịch sử chương %d: %w", chapter, err)
 		}
 		if strings.TrimSpace(draft) == "" {
-			return fmt.Errorf("第 %d 章缺少历史草稿，无法确认已接纳正文", chapter)
+			return fmt.Errorf("chương %d thiếu bản nháp lịch sử, không thể xác nhận chính văn đã tiếp nhận", chapter)
 		}
 		if err := verifyLegacySummary(st, chapter, commit.facts); err != nil {
 			return err
@@ -97,7 +99,7 @@ func MigrateLegacyBaseline(st *store.Store) error {
 			}
 		}
 		if acceptedAt.IsZero() {
-			return fmt.Errorf("第 %d 章成功提交记录缺少时间，无法建立修订基线", chapter)
+			return fmt.Errorf("bản ghi commit thành công của chương %d thiếu thời gian, không thể lập đường cơ sở tu chỉnh", chapter)
 		}
 		content := domain.NormalizeChapterContent(draft)
 		records = append(records, domain.ChapterRecord{
@@ -108,7 +110,7 @@ func MigrateLegacyBaseline(st *store.Store) error {
 		})
 	}
 	if err := ValidateRecords(records); err != nil {
-		return fmt.Errorf("历史章节事实无法形成一致基线: %w", err)
+		return fmt.Errorf("sự thật chương lịch sử không tạo được đường cơ sở nhất quán: %w", err)
 	}
 
 	for _, expected := range records {
@@ -118,12 +120,12 @@ func MigrateLegacyBaseline(st *store.Store) error {
 		}
 		if existing != nil {
 			if !sameLegacyRecord(*existing, expected) {
-				return fmt.Errorf("第 %d 章已有接纳记录与迁移基线冲突", expected.Chapter)
+				return fmt.Errorf("chương %d đã có bản ghi tiếp nhận xung đột với đường cơ sở di trú", expected.Chapter)
 			}
 			continue
 		}
 		if err := st.ChapterRecords.Save(expected); err != nil {
-			return fmt.Errorf("保存第 %d 章修订基线: %w", expected.Chapter, err)
+			return fmt.Errorf("lưu đường cơ sở tu chỉnh chương %d: %w", expected.Chapter, err)
 		}
 	}
 	return nil
@@ -132,14 +134,14 @@ func MigrateLegacyBaseline(st *store.Store) error {
 func verifyLegacySummary(st *store.Store, chapter int, facts domain.ChapterFacts) error {
 	summary, err := st.Summaries.LoadSummary(chapter)
 	if err != nil {
-		return fmt.Errorf("读取第 %d 章摘要: %w", chapter, err)
+		return fmt.Errorf("đọc tóm tắt chương %d: %w", chapter, err)
 	}
 	if summary == nil {
-		return fmt.Errorf("第 %d 章缺少摘要，无法校验历史提交", chapter)
+		return fmt.Errorf("chương %d thiếu tóm tắt, không thể kiểm tra commit lịch sử", chapter)
 	}
 	if summary.Title != facts.Title || summary.Summary != facts.Summary ||
 		!slices.Equal(summary.Characters, facts.Characters) || !slices.Equal(summary.KeyEvents, facts.KeyEvents) {
-		return fmt.Errorf("第 %d 章摘要与成功提交记录不一致，拒绝猜测迁移", chapter)
+		return fmt.Errorf("tóm tắt chương %d không khớp bản ghi commit thành công, từ chối đoán mò khi di trú", chapter)
 	}
 	return nil
 }
@@ -158,7 +160,7 @@ func loadLegacyCommits(dir string) (map[int]legacyCommit, error) {
 		if os.IsNotExist(err) {
 			return map[int]legacyCommit{}, nil
 		}
-		return nil, fmt.Errorf("读取历史 Worker 会话: %w", err)
+		return nil, fmt.Errorf("đọc phiên Worker lịch sử: %w", err)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	commits := make(map[int]legacyCommit)
@@ -181,7 +183,7 @@ func loadLegacyImportCommit(dir string, chapter int) (legacyCommit, bool, error)
 		if os.IsNotExist(err) {
 			return legacyCommit{}, false, nil
 		}
-		return legacyCommit{}, false, fmt.Errorf("读取第 %d 章历史导入分析: %w", chapter, err)
+		return legacyCommit{}, false, fmt.Errorf("đọc phân tích nhập liệu lịch sử chương %d: %w", chapter, err)
 	}
 	var artifact struct {
 		Payload struct {
@@ -189,10 +191,10 @@ func loadLegacyImportCommit(dir string, chapter int) (legacyCommit, bool, error)
 		} `json:"payload"`
 	}
 	if err := json.Unmarshal(data, &artifact); err != nil {
-		return legacyCommit{}, false, fmt.Errorf("解析第 %d 章历史导入分析: %w", chapter, err)
+		return legacyCommit{}, false, fmt.Errorf("phân tích nhập liệu lịch sử chương %d: %w", chapter, err)
 	}
 	if artifact.Payload.Facts.Chapter != chapter {
-		return legacyCommit{}, false, fmt.Errorf("第 %d 章历史导入分析的章号为 %d", chapter, artifact.Payload.Facts.Chapter)
+		return legacyCommit{}, false, fmt.Errorf("phân tích nhập liệu lịch sử của chương %d có số chương là %d", chapter, artifact.Payload.Facts.Chapter)
 	}
 	return legacyCommit{chapter: chapter, facts: artifact.Payload.Facts.ChapterFacts}, true, nil
 }
@@ -212,7 +214,7 @@ func readLegacyCommits(path string, commits map[int]legacyCommit) error {
 		if len(line) > 0 {
 			var msg agentcore.Message
 			if err := json.Unmarshal(line, &msg); err != nil {
-				return fmt.Errorf("解析历史会话 %s:%d: %w", filepath.Base(path), lineNo, err)
+				return fmt.Errorf("phân tích phiên lịch sử %s:%d: %w", filepath.Base(path), lineNo, err)
 			}
 			for _, call := range msg.ToolCalls() {
 				if call.Name != "commit_chapter" || call.ArgsInvalid || call.ID == "" {
@@ -220,7 +222,7 @@ func readLegacyCommits(path string, commits map[int]legacyCommit) error {
 				}
 				var args legacyCommitArgs
 				if err := json.Unmarshal(call.Args, &args); err != nil {
-					return fmt.Errorf("解析历史会话 %s:%d 的 commit_chapter: %w", filepath.Base(path), lineNo, err)
+					return fmt.Errorf("phân tích commit_chapter của phiên lịch sử %s:%d: %w", filepath.Base(path), lineNo, err)
 				}
 				pending[call.ID] = args
 			}
@@ -244,7 +246,7 @@ func readLegacyCommits(path string, commits map[int]legacyCommit) error {
 			if readErr == io.EOF {
 				return nil
 			}
-			return fmt.Errorf("读取历史会话 %s: %w", filepath.Base(path), readErr)
+			return fmt.Errorf("đọc phiên lịch sử %s: %w", filepath.Base(path), readErr)
 		}
 	}
 }

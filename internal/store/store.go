@@ -12,10 +12,11 @@ import (
 	"github.com/voocel/ainovel-cli/internal/errs"
 )
 
-// Store 是状态管理的组合根，持有所有子存储。
+// Store is the composition root of state management; it owns every sub-store.
 type Store struct {
-	dir string
-	ios []*IO
+	dir  string
+	lang string
+	ios  []*IO
 
 	Progress       *ProgressStore
 	Book           *BookStore
@@ -37,7 +38,7 @@ type Store struct {
 	ChapterRecords *ChapterRecordStore
 	Revisions      *RevisionStore
 
-	crossMu sync.Mutex // 串行化跨域协调；不代表多个文件具备事务原子性
+	crossMu sync.Mutex // Serialises cross-domain coordination; it does not make multiple files transactional
 }
 
 const (
@@ -50,11 +51,11 @@ type projectFormat struct {
 	Version int `json:"version"`
 }
 
-// NewStore 创建状态管理器，dir 为小说输出根目录。
+// NewStore creates the state manager; dir is the novel's output root directory.
 func NewStore(dir string) *Store {
 	var ios []*IO
-	// mk 记下每个子 store 的 IO：它们各自持锁（互不阻塞），但语种是全书统一的，
-	// 集中登记才能一次设完，不会漏掉将来新增的 store。
+	// mk records every sub-store's IO: each holds its own lock (so none blocks another), but the language is uniform for
+	// the whole book, and registering them centrally sets it in one go without missing a store added later.
 	mk := func() *IO { x := newIO(dir); ios = append(ios, x); return x }
 	io := mk()
 	outline := NewOutlineStore(io)
@@ -84,19 +85,11 @@ func NewStore(dir string) *Store {
 	return s
 }
 
-// SetLanguage 设定作品语种（"vi" / "zh"），影响所有派生 Markdown 视图的标签。
-// 启动时设一次即可；未调用则按上游默认走中文。
-func (s *Store) SetLanguage(lang string) {
-	for _, x := range s.ios {
-		x.SetLanguage(lang)
-	}
-}
-
-// Dir 返回输出根目录。
+// Dir returns the output root directory.
 func (s *Store) Dir() string { return s.dir }
 
-// LoadProjectFormatVersion 返回作品目录的数据格式版本。旧作品没有版本文件，
-// 视为 v1，由启动迁移统一升级，业务代码无需保留旧格式分支。
+// LoadProjectFormatVersion returns the work directory's data format version. An old work has no version file and is
+// treated as v1, upgraded uniformly by the startup migration, so business code needs no branches for the old format.
 func (s *Store) LoadProjectFormatVersion() (int, error) {
 	var format projectFormat
 	if err := s.Progress.io.ReadJSON(projectFormatPath, &format); err != nil {
@@ -106,29 +99,29 @@ func (s *Store) LoadProjectFormatVersion() (int, error) {
 		return 0, err
 	}
 	if format.Version <= 0 {
-		return 0, fmt.Errorf("项目格式版本无效: %d", format.Version)
+		return 0, fmt.Errorf("phiên bản định dạng dự án không hợp lệ: %d", format.Version)
 	}
 	return format.Version, nil
 }
 
-// SaveProjectFormatVersion 在一次迁移全部完成后原子更新项目格式版本。
+// SaveProjectFormatVersion atomically updates the project format version once a migration has fully completed.
 func (s *Store) SaveProjectFormatVersion(version int) error {
 	if version <= 0 {
-		return fmt.Errorf("项目格式版本必须大于 0: %d", version)
+		return fmt.Errorf("phiên bản định dạng dự án phải lớn hơn 0: %d", version)
 	}
 	return s.Progress.io.WriteJSON(projectFormatPath, projectFormat{Version: version})
 }
 
-// CheckConsistency 对事实层做一次浅层校验，用于启动/恢复时生成 warning。
-// 纯只读：不修正数据，仅返回可读的问题描述。调用方决定如何展示（log / UI）。
-// 为避免扫全目录带来的 IO 开销，只校验 Progress 的关键点：
-//   - 最后一个完成章节必须在 chapters/ 下存在终稿
-//   - Layered 模式下，当前 Volume/Arc 必须能在 layered_outline 中找到
+// CheckConsistency runs a shallow validation of the fact layer, generating warnings at startup/recovery.
+// Purely read-only: it corrects nothing and only returns readable problem descriptions; the caller decides how to show
+// them (log / UI). To avoid the IO cost of scanning the whole directory it validates only Progress's key points:
+//   - the last completed chapter must have a final draft under chapters/
+//   - in Layered mode the current Volume/Arc must be findable in layered_outline
 func (s *Store) CheckConsistency() []string {
 	var warnings []string
 	progress, err := s.Progress.Load()
 	if err != nil {
-		return append(warnings, fmt.Sprintf("progress 读取失败: %v", err))
+		return append(warnings, fmt.Sprintf("đọc progress thất bại: %v", err))
 	}
 	if progress == nil {
 		return warnings
@@ -136,15 +129,15 @@ func (s *Store) CheckConsistency() []string {
 	if n := len(progress.CompletedChapters); n > 0 {
 		lastCh := progress.CompletedChapters[n-1]
 		if text, err := s.Drafts.LoadChapterText(lastCh); err != nil {
-			warnings = append(warnings, fmt.Sprintf("第 %d 章终稿读取失败: %v", lastCh, err))
+			warnings = append(warnings, fmt.Sprintf("đọc bản chung cuộc chương %d thất bại: %v", lastCh, err))
 		} else if text == "" {
-			warnings = append(warnings, fmt.Sprintf("progress 标记第 %d 章已完成，但 chapters/%02d.md 不存在或为空", lastCh, lastCh))
+			warnings = append(warnings, fmt.Sprintf("progress đánh dấu chương %d đã hoàn thành, nhưng chapters/%02d.md không tồn tại hoặc rỗng", lastCh, lastCh))
 		}
 	}
 	if progress.Layered && progress.CurrentVolume > 0 && progress.CurrentArc > 0 {
 		volumes, err := s.Outline.LoadLayeredOutline()
 		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("分层大纲读取失败: %v", err))
+			warnings = append(warnings, fmt.Sprintf("đọc đại cương phân tầng thất bại: %v", err))
 		} else if len(volumes) > 0 {
 			found := false
 			for _, v := range volumes {
@@ -160,16 +153,17 @@ func (s *Store) CheckConsistency() []string {
 				break
 			}
 			if !found {
-				warnings = append(warnings, fmt.Sprintf("progress 当前 V%d A%d 在分层大纲中找不到对应条目", progress.CurrentVolume, progress.CurrentArc))
+				warnings = append(warnings, fmt.Sprintf("progress hiện tại V%d A%d không tìm thấy mục tương ứng trong đại cương phân tầng", progress.CurrentVolume, progress.CurrentArc))
 			}
 		}
 	}
 	return warnings
 }
 
-// FoundationMissing 返回初始规划中尚缺的作品信息与基础设定，顺序稳定。
-// 长篇模式（已有 layered_outline）额外要求 compass。读取失败必须原样返回，不能把
-// 损坏或无权限读取的工件误判成“尚未创建”，否则调用方可能覆盖真实数据。
+// FoundationMissing returns the work information and foundation still missing from initial planning, in a stable order.
+// Long-form mode (an existing layered_outline) additionally requires Compass. A read failure must be returned as-is: a
+// corrupt or permission-denied artifact must not be misjudged as "not created yet", or the caller might overwrite real
+// data.
 func (s *Store) FoundationMissing() ([]string, error) {
 	var missing []string
 	book, err := s.Book.Load()
@@ -220,9 +214,10 @@ func (s *Store) FoundationMissing() ([]string, error) {
 			missing = append(missing, "compass")
 		}
 	}
-	// 新书只有经过模型对已落盘工件的显式语义审查，才允许从规划进入写作。
-	// PhaseWriting/Complete 代表旧书或已审查的新书，保持历史项目兼容；审查本身
-	// 是一个动作而非文件缺失，因此只在其它工件齐全时追加。
+	// A new book may move from planning to writing only after an explicit model semantic audit of the persisted
+	// artifacts. PhaseWriting/Complete represent an old book or an already-audited new one, preserving compatibility
+	// with historical projects; the audit is an action rather than a missing file, so it is appended only when the other
+	// artifacts are complete.
 	if len(missing) == 0 {
 		progress, err := s.Progress.Load()
 		if err != nil {
@@ -235,9 +230,9 @@ func (s *Store) FoundationMissing() ([]string, error) {
 	return missing, nil
 }
 
-// FoundationFingerprint 返回当前基础设定工件的内容指纹。Architect 必须把
-// novel_context 读到的这个值原样交回审查工具，确保结论针对的是实际落盘版本，
-// 而不是会话中尚未保存或已经过期的内容。
+// FoundationFingerprint returns the content fingerprint of the current foundation artifacts. The Architect must hand
+// this value, read from novel_context, back to the audit tool verbatim, ensuring the verdict targets the version
+// actually on disk rather than unsaved or expired session content.
 func (s *Store) FoundationFingerprint() (string, error) {
 	files := []string{"meta/book.json", "premise.md", "outline.json", "characters.json", "world_rules.json"}
 	layered, err := s.Outline.LoadLayeredOutline()
@@ -262,7 +257,7 @@ func (s *Store) FoundationFingerprint() (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// Init 创建所需的子目录结构。
+// Init creates the required subdirectory structure.
 func (s *Store) Init() error {
 	if err := s.Checkpoints.InitError(); err != nil {
 		return fmt.Errorf("load checkpoints: %w", err)
@@ -272,9 +267,9 @@ func (s *Store) Init() error {
 	})
 }
 
-// ── 跨域协调方法 ──
+// ── Cross-domain coordination methods ──
 
-// ExpandArc 将骨架弧校准并展开为详细章节（Outline + Progress 联动）。
+// ExpandArc calibrates a skeleton arc and expands it into detailed chapters (Outline + Progress in step).
 func (s *Store) ExpandArc(volumeIdx, arcIdx int, expansion domain.ArcExpansion) error {
 	s.crossMu.Lock()
 	defer s.crossMu.Unlock()
@@ -301,7 +296,7 @@ func (s *Store) ExpandArc(volumeIdx, arcIdx int, expansion domain.ArcExpansion) 
 	return s.Progress.saveUnlocked(p)
 }
 
-// AppendVolume 追加新卷到分层大纲末尾（Outline + Progress 联动）。
+// AppendVolume appends a new volume to the end of the layered outline (Outline + Progress in step).
 func (s *Store) AppendVolume(vol domain.VolumeOutline) error {
 	s.crossMu.Lock()
 	defer s.crossMu.Unlock()
@@ -328,9 +323,10 @@ func (s *Store) AppendVolume(vol domain.VolumeOutline) error {
 	return s.Progress.saveUnlocked(p)
 }
 
-// ReviseOutline 从 fromChapter 起替换尚未发生的计划尾段。
-// 扁平大纲替换全书尾段；分层大纲只替换目标章所在弧的尾段。这个定义让同一载荷
-// 重放仍得到同一结果，同时避免 JSON Patch 和 insert/delete 等操作枚举。
+// ReviseOutline replaces the not-yet-reached planning tail from fromChapter onwards.
+// The flat outline replaces the book's tail; the layered outline replaces only the tail of the arc containing the target
+// chapter. This definition makes the same payload replay to the same result while avoiding JSON Patch and an enumeration
+// of insert/delete operations.
 func (s *Store) ReviseOutline(fromChapter int, replacement []domain.OutlineEntry) (int, error) {
 	if fromChapter <= 0 {
 		return 0, fmt.Errorf("from_chapter must be > 0: %w", errs.ErrToolArgs)
@@ -349,23 +345,24 @@ func (s *Store) ReviseOutline(fromChapter int, replacement []domain.OutlineEntry
 		return 0, fmt.Errorf("load progress: %w: %w", errs.ErrStoreRead, err)
 	}
 	if p == nil {
-		return 0, fmt.Errorf("progress 未初始化: %w", errs.ErrToolPrecondition)
+		return 0, fmt.Errorf("progress chưa được khởi tạo: %w", errs.ErrToolPrecondition)
 	}
 	if p.Phase == domain.PhaseComplete {
-		return 0, fmt.Errorf("全书已完结，不允许修改大纲: %w", errs.ErrToolPrecondition)
+		return 0, fmt.Errorf("toàn sách đã kết thúc, không cho phép sửa đại cương: %w", errs.ErrToolPrecondition)
 	}
 	protected := p.InProgressChapter
 	if latest := p.LatestCompleted(); latest > protected {
 		protected = latest
 	}
 	if fromChapter <= protected {
-		// 只报"不许改"会把调用方逼进死路：实测架构师在此连试 4 次（from=21/22/13，
-		// 再退到 save_foundation(outline)）全被拒，空转到熔断。错误必须同时说明谁负责
-		// 返工，否则架构师会继续在自己的工具集里找一个并不存在的出口。
+		// Reporting only "not allowed" backs the caller into a dead end: measured, the architect tried four times here
+		// (from=21/22/13, then fell back to save_foundation(outline)) and was refused every time, idling until the
+		// circuit breaker. An error must also say who owns the rework, or the architect keeps hunting for an exit that
+		// does not exist in its own toolset.
 		return 0, fmt.Errorf(
-			"第 %d 章已完成或正在写作；revise_outline 只能修订尚未发生的章节，必须从第 %d 章之后开始。"+
-				"pending_rewrites 中的已写章节不归大纲修订管：返工由 writer 按队列执行；"+
-				"架构师若无未来章节需要改写，请调 resolve_outline_feedback 确认现有规划仍适用后结束: %w",
+			"Chương %d đã hoàn thành hoặc đang viết; revise_outline chỉ tu chỉnh được các chương chưa diễn ra, phải bắt đầu từ sau chương %d. "+
+				"Các chương đã viết nằm trong pending_rewrites không thuộc phạm vi tu chỉnh đại cương: việc làm lại do writer thực hiện theo hàng đợi; "+
+				"nếu kiến trúc sư không có chương tương lai nào cần viết lại, hãy gọi resolve_outline_feedback để xác nhận quy hoạch hiện tại vẫn còn phù hợp rồi kết thúc: %w",
 			fromChapter, protected, errs.ErrToolPrecondition)
 	}
 
@@ -392,9 +389,9 @@ func (s *Store) ReviseOutline(fromChapter int, replacement []domain.OutlineEntry
 	return p.TotalChapters, nil
 }
 
-// ClearHandledSteer 清除 PendingSteer 并重置旧版 FlowSteering 状态。
-// 两个文件无法组成文件系统事务，因此先写可重复的 Progress，最后才删除恢复意图；
-// 任一步失败都至少保留 PendingSteer，下一次 Resume 可以安全重放。
+// ClearHandledSteer clears PendingSteer and resets the legacy FlowSteering state.
+// Two files cannot form a filesystem transaction, so the repeatable Progress is written first and the recovery intent is
+// deleted last; a failure at any step leaves PendingSteer at least, and the next Resume can replay safely.
 func (s *Store) ClearHandledSteer() error {
 	s.crossMu.Lock()
 	defer s.crossMu.Unlock()

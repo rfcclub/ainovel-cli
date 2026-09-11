@@ -1,25 +1,29 @@
-// Package imp 实现外部小说的分阶段语义导入管线（docs/import-pipeline.md）。
+// Package imp implements the staged semantic import pipeline for external novels
+// (docs/import-pipeline.md).
 //
-// 模型负责理解开放语义，代码负责坐标、覆盖、类型、哈希、顺序和幂等；全部语义产物在
-// 独立工作区（meta/import/）验证完成后，才发布到正式书籍状态。下一动作只从工件推导
-// （NextAction），不存会漂移的阶段枚举，恢复不依赖 from=N。
+// The model understands open semantics while the code owns coordinates, coverage, types, hashing, ordering and
+// idempotency; every semantic product is published to official book state only after it has been validated in the
+// separate workspace (meta/import/). The next action is derived from artifacts alone (NextAction), no drifting
+// stage enum is stored, and recovery does not depend on from=N.
 package imp
 
 import "time"
 
-// Options 控制一次导入。恢复时字段可空，直接从活动工作区与已保存 Intent 推导。
+// Options controls one import. Fields may be empty on recovery, deriving everything from the active workspace and the saved Intent.
 type Options struct {
-	SourcePath      string // 新导入必填；恢复时可空
-	AutoConfirm     bool   // --yes：覆盖校验通过后自动接受切分
-	StoryResolution string // --story=open|closed：仅 synthesis 返回 uncertain 时预选
-	ContinueAfter   bool   // --continue：不创建导入完成 Hold
-	Guidance        string // --guide：自然语言切分指导，落盘工作区后自然使旧切分失配重识别
-	// AcceptSegmentation：TUI 预览后的显式人工确认（y）。一次性放行当前切分，不写 intent；
-	// 与 --yes 的区别：--yes 是未看预览的盲授权，不放行带容错说明（Notes）的切分，y 是看过预览的裁定。
+	SourcePath      string // Required for a new import; may be empty when resuming
+	AutoConfirm     bool   // --yes: auto-accept the segmentation once coverage validation passes
+	StoryResolution string // --story=open|closed: pre-select only when synthesis returns uncertain
+	ContinueAfter   bool   // --continue: do not create the import-complete Hold
+	Guidance        string // --guide: natural-language segmentation guidance; persisting it into the workspace naturally invalidates the old segmentation and forces re-detection
+	// AcceptSegmentation: the explicit human confirmation after the TUI preview (y). It lets the current segmentation
+	// through for this run without writing intent; unlike --yes, which is blind authorisation without seeing the
+	// preview and does not let through a segmentation carrying tolerance notes (Notes), y is a ruling made after
+	// seeing the preview.
 	AcceptSegmentation bool
 }
 
-// intent 从 Options 抽取需持久化的用户授权。
+// intent extracts the user authorisation that must be persisted from Options.
 func (o Options) intent() Intent {
 	return Intent{
 		Version:             workspaceSchemaVersion,
@@ -29,7 +33,7 @@ func (o Options) intent() Intent {
 	}
 }
 
-// Stage 表示导入流程的当前阶段，仅用于 UI 展示，不是恢复事实源（RFC §14.1）。
+// Stage represents the import flow's current stage for UI display only; it is not the recovery source of truth (RFC §14.1).
 type Stage string
 
 const (
@@ -45,16 +49,16 @@ const (
 	StageError                Stage = "error"
 )
 
-// Event 是导入流程对外发出的进度事件。Event 是投影，不参与恢复。
+// Event is the progress event the import flow emits. Event is a projection and takes no part in recovery.
 type Event struct {
 	Time      time.Time
 	Stage     Stage
-	Current   int       // 章节/区间进度
-	Total     int       // 总数
-	Message   string    // 人类可读描述
-	Level     string    // ""=普通进度；"warn"=退避重试/校验重问等警示状态
-	Key       string    // 非空时 UI 对同 Key 连续事件原地更新（如 7 次退避在一行变动），对齐事件面板 ID 机制
-	RetryAt   time.Time // 非零 = 下次重试的截止时刻；UI 据此逐秒倒计时渲染，到点即清（请求已在途）
-	Err       error     // StageError 时携带
-	Continued bool      // StageDone 时由 Host 置位：是否已自动接力启动 Engine（--continue × auto）
+	Current   int       // Chapter/range progress
+	Total     int       // Total count
+	Message   string    // Human-readable description
+	Level     string    // "" = normal progress; "warn" = cautionary state such as backoff retry or validation re-ask
+	Key       string    // When non-empty the UI updates consecutive events with the same Key in place (e.g. 7 backoffs changing on one line), matching the event-panel ID mechanism
+	RetryAt   time.Time // Non-zero = deadline of the next retry; the UI renders a per-second countdown and clears it on expiry (the request is already in flight)
+	Err       error     // Carried when StageError
+	Continued bool      // Set by the Host on StageDone: whether the Engine was automatically started to continue (--continue x auto)
 }

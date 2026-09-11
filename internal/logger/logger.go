@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// Setup 初始化 slog 默认 logger。
-// w 为日志输出目标，level 为最低日志级别。
+// Setup initialises the default slog logger.
+// w is the log sink and level is the minimum log level.
 func Setup(w io.Writer, level slog.Level) {
 	slog.SetDefault(slog.New(newTextHandler(w, level)))
 }
@@ -19,7 +19,8 @@ func newTextHandler(w io.Writer, level slog.Level) slog.Handler {
 	return slog.NewTextHandler(w, &slog.HandlerOptions{
 		Level: level,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			// 保留日期、毫秒和时区；日志跨进程追加时仍能准确对齐代码版本与会话。
+			// Keep the date, milliseconds and time zone so that when logs are appended
+			// across processes they still line up precisely with the code version and session.
 			if a.Key == slog.TimeKey {
 				a.Value = slog.StringValue(a.Value.Time().Format("2006-01-02T15:04:05.000Z07:00"))
 			}
@@ -37,26 +38,29 @@ func newSessionLogger(w io.Writer, level slog.Level, sessionAttrs ...slog.Attr) 
 	return slog.New(handler), sessionID
 }
 
-// FileLogger 返回写入 outputDir/logs/filename 的独立 logger 与清理函数，
-// 供需要独立日志文件的子系统（如导入流程）使用。打开失败回退默认 logger 不中断业务，
-// 但错误必须返回给调用方向用户呈现——否则 UI 指引用户去看一个并不存在的日志文件。
+// FileLogger returns a dedicated logger writing to outputDir/logs/filename plus a cleanup
+// function, for subsystems that need their own log file (such as the import pipeline).
+// On failure to open, it falls back to the default logger without interrupting the work, but
+// the error must be returned to the caller for presentation to the user — otherwise the UI
+// points the user at a log file that does not exist.
 func FileLogger(outputDir, filename string) (*slog.Logger, func(), error) {
 	f, err := openLogFile(outputDir, filename)
 	if err != nil {
 		return slog.Default(), func() {}, err
 	}
 	logger, sessionID := newSessionLogger(f, slog.LevelDebug)
-	logger.Info("日志会话开始", "module", "logger", "session_id", sessionID)
+	logger.Info("bắt đầu phiên log", "module", "logger", "session_id", sessionID)
 	return logger, func() {
-		logger.Info("日志会话结束", "module", "logger", "session_id", sessionID)
+		logger.Info("kết thúc phiên log", "module", "logger", "session_id", sessionID)
 		_ = f.Close()
 	}, nil
 }
 
-// SetupFile 初始化默认 logger 到文件，返回清理函数。
-// alsoStderr=true 时同时输出到 stderr。
-// 日志目录或文件无法打开时返回错误，调用方必须显式处理；禁止切到 io.Discard
-// 后继续运行，否则恰好在最需要排障时丢失全部运行日志。
+// SetupFile initialises the default logger to a file and returns a cleanup function.
+// When alsoStderr is true it writes to stderr as well.
+// It returns an error when the log directory or file cannot be opened, and the caller must
+// handle that explicitly; switching to io.Discard and carrying on is forbidden, because that
+// loses the entire run log exactly when debugging matters most.
 func SetupFile(outputDir, filename string, alsoStderr bool, sessionAttrs ...slog.Attr) (func(), error) {
 	f, err := openLogFile(outputDir, filename)
 	if err != nil {
@@ -70,10 +74,10 @@ func SetupFile(outputDir, filename string, alsoStderr bool, sessionAttrs ...slog
 	previous := slog.Default()
 	logger, sessionID := newSessionLogger(w, slog.LevelDebug, sessionAttrs...)
 	slog.SetDefault(logger)
-	logger.Info("日志会话开始", "module", "logger", "session_id", sessionID)
+	logger.Info("bắt đầu phiên log", "module", "logger", "session_id", sessionID)
 
 	return func() {
-		logger.Info("日志会话结束", "module", "logger", "session_id", sessionID)
+		logger.Info("kết thúc phiên log", "module", "logger", "session_id", sessionID)
 		slog.SetDefault(previous)
 		_ = f.Close()
 	}, nil

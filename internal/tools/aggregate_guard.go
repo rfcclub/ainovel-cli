@@ -8,9 +8,10 @@ import (
 	"github.com/voocel/ainovel-cli/internal/store"
 )
 
-// requireAggregateTarget 将 Editor 的新聚合写入绑定到 Router 当前唯一待补的工件。
-// 目标完全由已落盘事实推导，不依赖任务文案，也不信任模型自填的章节/卷弧号；
-// 已落盘同内容的幂等收尾由各工具在调用本函数前识别。
+// requireAggregateTarget binds the Editor's new aggregate write to the single artifact the Router currently awaits.
+// The target is derived entirely from persisted facts, relying neither on the task copy nor on the model's own chapter /
+// volume-arc numbers; an idempotent wrap-up with identical persisted content is recognised by each tool before it calls
+// this function.
 func requireAggregateTarget(st *store.Store, kind flow.AggregateKind, volume, arc, endChapter int) error {
 	state, err := flow.LoadState(st)
 	if err != nil {
@@ -18,7 +19,7 @@ func requireAggregateTarget(st *store.Store, kind flow.AggregateKind, volume, ar
 	}
 	due := state.AggregateRefresh
 	if due == nil {
-		return fmt.Errorf("当前没有待处理的 %s 工件: %w", kind, errs.ErrToolPrecondition)
+		return fmt.Errorf("hiện không có sản phẩm %s nào đang chờ xử lý: %w", kind, errs.ErrToolPrecondition)
 	}
 	targetMismatch := due.Kind != kind
 	switch kind {
@@ -27,12 +28,12 @@ func requireAggregateTarget(st *store.Store, kind flow.AggregateKind, volume, ar
 	case flow.AggregateVolumeSummary:
 		targetMismatch = targetMismatch || due.Volume != volume
 	case flow.AggregateGlobalReview:
-		// 全局评审没有卷弧坐标，只由 kind 和截止章节定位。
+		// A global review carries no volume-arc coordinates and is located by kind and end chapter alone.
 	}
 	endMismatch := endChapter > 0 && due.EndChapter != endChapter
 	if targetMismatch || endMismatch {
 		return fmt.Errorf(
-			"聚合写入目标不匹配：当前应处理 kind=%s volume=%d arc=%d end_chapter=%d，收到 kind=%s volume=%d arc=%d end_chapter=%d: %w",
+			"Đích ghi tổng hợp không khớp: hiện phải xử lý kind=%s volume=%d arc=%d end_chapter=%d, nhưng nhận được kind=%s volume=%d arc=%d end_chapter=%d: %w",
 			due.Kind, due.Volume, due.Arc, due.EndChapter,
 			kind, volume, arc, endChapter, errs.ErrToolConflict,
 		)

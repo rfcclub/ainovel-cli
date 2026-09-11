@@ -61,7 +61,7 @@ func structured(jsonSchema, strict llm.Support) llm.Capabilities {
 
 func boolPtr(v bool) *bool { return &v }
 
-// TestResolveMatrix 覆盖 config 三态 × adapter 能力的全部组合。
+// TestResolveMatrix covers every combination of the config three-state × adapter capability.
 func TestResolveMatrix(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -245,8 +245,8 @@ func TestValidateJSONEnforcesStrictContract(t *testing.T) {
 func TestValidateJSONRejectsInvalidEnumContract(t *testing.T) {
 	contract := testContract()
 	contract.Schema["enum"] = []any{1}
-	if err := ValidateJSON(contract.Schema, []byte(`{"action":"a","reason":"ok"}`)); err == nil || !strings.Contains(err.Error(), "enum 契约非法") {
-		t.Fatalf("应暴露非法 enum 契约，err=%v", err)
+	if err := ValidateJSON(contract.Schema, []byte(`{"action":"a","reason":"ok"}`)); err == nil || !strings.Contains(err.Error(), "contract không hợp lệ") {
+		t.Fatalf("phải phơi ra contract enum không hợp lệ, err=%v", err)
 	}
 }
 

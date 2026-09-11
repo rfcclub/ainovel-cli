@@ -15,10 +15,10 @@ import (
 
 const checkpointsFile = "meta/checkpoints.jsonl"
 
-// CheckpointStore 管理 step 级 checkpoint 的追加与查询。
-// 磁盘格式：meta/checkpoints.jsonl，只追加；查询走内存镜像。
-// 不变量：cache 是 checkpoints.jsonl 的镜像，由 Append/Reset 单点维护。
-// 并发：cache 受 io.mu 保护，写走 Lock、读走 RLock。
+// CheckpointStore manages the append and query of step-level checkpoints.
+// Disk format: meta/checkpoints.jsonl, append-only; queries go through the in-memory mirror.
+// Invariant: cache mirrors checkpoints.jsonl and is maintained at the single points Append/Reset.
+// Concurrency: cache is protected by io.mu — writes take Lock, reads take RLock.
 type CheckpointStore struct {
 	io      *IO
 	seqGen  atomic.Int64
@@ -26,14 +26,14 @@ type CheckpointStore struct {
 	loadErr error
 }
 
-// NewCheckpointStore 创建 checkpoint 存储，从磁盘一次性加载已有 checkpoint 到 cache。
+// NewCheckpointStore creates the checkpoint store, loading existing checkpoints into cache in one pass from disk.
 func NewCheckpointStore(io *IO) *CheckpointStore {
 	cs := &CheckpointStore{io: io}
 	cs.loadFromDisk()
 	return cs
 }
 
-// loadFromDisk 一次性把磁盘 jsonl 读进 cache 并恢复 seqGen。
+// loadFromDisk reads the disk jsonl into cache in one pass and restores seqGen.
 func (cs *CheckpointStore) loadFromDisk() {
 	cs.io.mu.Lock()
 	defer cs.io.mu.Unlock()
@@ -48,13 +48,13 @@ func (cs *CheckpointStore) loadFromDisk() {
 	cs.seqGen.Store(maxSeq)
 }
 
-// Append 追加一条 checkpoint。
-// 幂等：相同 Scope + Step + Digest 已存在则跳过写入，直接返回已有记录。
+// Append appends one checkpoint.
+// Idempotent: an existing Scope + Step + Digest is skipped and the existing record returned directly.
 func (cs *CheckpointStore) Append(scope domain.Scope, step, artifact, digest string) (*domain.Checkpoint, error) {
 	cs.io.mu.Lock()
 	defer cs.io.mu.Unlock()
 	if cs.loadErr != nil {
-		return nil, fmt.Errorf("checkpoint store 初始化失败: %w", cs.loadErr)
+		return nil, fmt.Errorf("khởi tạo checkpoint store thất bại: %w", cs.loadErr)
 	}
 
 	if digest != "" {
@@ -66,8 +66,8 @@ func (cs *CheckpointStore) Append(scope domain.Scope, step, artifact, digest str
 		}
 	}
 
-	// seq 写成功后才推进，避免写失败留下永久跳号。
-	// 已持 io.mu 写锁，Load+Store 之间不会被并发抢占。
+	// seq advances only after a successful write, so a failed write cannot leave a permanent gap.
+	// io.mu's write lock is already held, so nothing preempts between the Load and the Store.
 	seq := cs.seqGen.Load() + 1
 	cp := domain.Checkpoint{
 		Seq:        seq,
@@ -91,7 +91,7 @@ func (cs *CheckpointStore) Append(scope domain.Scope, step, artifact, digest str
 	return &cp, nil
 }
 
-// AppendArtifact 计算 artifact 内容指纹后追加 checkpoint。
+// AppendArtifact computes the artifact content fingerprint and then appends a checkpoint.
 func (cs *CheckpointStore) AppendArtifact(scope domain.Scope, step, artifact string) (*domain.Checkpoint, error) {
 	if artifact == "" {
 		return cs.Append(scope, step, "", "")
@@ -104,8 +104,8 @@ func (cs *CheckpointStore) AppendArtifact(scope domain.Scope, step, artifact str
 	return cs.Append(scope, step, artifact, "sha256:"+hex.EncodeToString(sum[:]))
 }
 
-// AppendArtifacts 为同一步骤的多个正式工件生成组合指纹。
-// Artifact 保留第一个主工件路径；任一关联工件变化都会产生新 checkpoint。
+// AppendArtifacts generates a combined fingerprint for several official artifacts of the same step.
+// Artifact keeps the first main artifact's path; a change in any related artifact produces a new checkpoint.
 func (cs *CheckpointStore) AppendArtifacts(scope domain.Scope, step string, artifacts ...string) (*domain.Checkpoint, error) {
 	if len(artifacts) == 0 {
 		return cs.Append(scope, step, "", "")
@@ -124,7 +124,7 @@ func (cs *CheckpointStore) AppendArtifacts(scope domain.Scope, step string, arti
 	return cs.Append(scope, step, artifacts[0], "sha256:"+hex.EncodeToString(h.Sum(nil)))
 }
 
-// Latest 返回指定 scope 的最新 checkpoint。
+// Latest returns the latest checkpoint for the given scope.
 func (cs *CheckpointStore) Latest(scope domain.Scope) *domain.Checkpoint {
 	cs.io.mu.RLock()
 	defer cs.io.mu.RUnlock()
@@ -137,7 +137,7 @@ func (cs *CheckpointStore) Latest(scope domain.Scope) *domain.Checkpoint {
 	return nil
 }
 
-// LatestByStep 返回指定 scope + step 的最新 checkpoint。
+// LatestByStep returns the latest checkpoint for the given scope + step.
 func (cs *CheckpointStore) LatestByStep(scope domain.Scope, step string) *domain.Checkpoint {
 	cs.io.mu.RLock()
 	defer cs.io.mu.RUnlock()
@@ -150,7 +150,7 @@ func (cs *CheckpointStore) LatestByStep(scope domain.Scope, step string) *domain
 	return nil
 }
 
-// LatestGlobal 返回全局最新 checkpoint（不区分 scope）。
+// LatestGlobal returns the globally latest checkpoint (ignoring scope).
 func (cs *CheckpointStore) LatestGlobal() *domain.Checkpoint {
 	cs.io.mu.RLock()
 	defer cs.io.mu.RUnlock()
@@ -161,7 +161,7 @@ func (cs *CheckpointStore) LatestGlobal() *domain.Checkpoint {
 	return &cp
 }
 
-// All 返回全部 checkpoint 列表副本（按 seq 递增）。
+// All returns a copy of the whole checkpoint list (ascending seq).
 func (cs *CheckpointStore) All() []domain.Checkpoint {
 	cs.io.mu.RLock()
 	defer cs.io.mu.RUnlock()
@@ -173,8 +173,9 @@ func (cs *CheckpointStore) All() []domain.Checkpoint {
 	return out
 }
 
-// Reset 清空 checkpoint 文件与 cache。仅在新建小说时使用。
-// 先删文件再清内存：删除失败时保留 cache 与 seqGen，避免内存与磁盘状态错位。
+// Reset clears the checkpoint file and cache. It is used only when creating a novel.
+// The file is deleted before memory is cleared: on a failed delete cache and seqGen are kept, so memory and disk cannot
+// fall out of step.
 func (cs *CheckpointStore) Reset() error {
 	cs.io.mu.Lock()
 	defer cs.io.mu.Unlock()
@@ -187,15 +188,15 @@ func (cs *CheckpointStore) Reset() error {
 	return nil
 }
 
-// InitError 返回构造时加载 checkpoint 镜像的错误。Store.Init 必须先检查它，
-// 防止损坏的 jsonl 被解释成“没有 checkpoint”。
+// InitError returns the error from loading the checkpoint mirror at construction. Store.Init must check it first, so a
+// corrupt jsonl is not interpreted as "no checkpoints".
 func (cs *CheckpointStore) InitError() error {
 	cs.io.mu.RLock()
 	defer cs.io.mu.RUnlock()
 	return cs.loadErr
 }
 
-// readCheckpointsFile 严格解析 jsonl；尾部截断也是需要用户可见的持久化错误。
+// readCheckpointsFile parses jsonl strictly; a truncated tail is also a persistence error the user needs to see.
 func readCheckpointsFile(path string) ([]domain.Checkpoint, error) {
 	f, err := os.Open(path)
 	if err != nil {

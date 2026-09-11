@@ -14,14 +14,14 @@ import (
 func retryPrefix(attempt, maxRetries int, delay time.Duration) string {
 	if maxRetries <= 0 {
 		if text := formatRetryDelay(delay); text != "" {
-			return fmt.Sprintf("重试 (第%d次，%s后): ", attempt, text)
+			return fmt.Sprintf("Thử lại (lần %d, sau %s): ", attempt, text)
 		}
-		return fmt.Sprintf("重试 (第%d次): ", attempt)
+		return fmt.Sprintf("Thử lại (lần %d): ", attempt)
 	}
 	if text := formatRetryDelay(delay); text != "" {
-		return fmt.Sprintf("重试 (%d/%d，%s后): ", attempt, maxRetries, text)
+		return fmt.Sprintf("Thử lại (%d/%d, sau %s): ", attempt, maxRetries, text)
 	}
-	return fmt.Sprintf("重试 (%d/%d): ", attempt, maxRetries)
+	return fmt.Sprintf("Thử lại (%d/%d): ", attempt, maxRetries)
 }
 
 func formatRetryDelay(delay time.Duration) string {
@@ -77,7 +77,7 @@ func (o *observer) handleContextProgress(ev agentcore.Event) {
 		return
 	}
 
-	// 更新 agent 快照（TUI 侧边栏始终可见）
+	// Update the agent snapshot (always visible in the TUI sidebar)
 	o.updateAgent(agent, func(a *agentState) {
 		a.context = AgentContextSnapshot{
 			Tokens:        payload.Tokens,
@@ -92,15 +92,15 @@ func (o *observer) handleContextProgress(ev agentcore.Event) {
 	if payload.Percent > 85 {
 		level = "warn"
 	}
-	summary := fmt.Sprintf("%s 上下文 %.0f%% (%d/%d) 策略: %s", agent, payload.Percent, payload.Tokens, payload.ContextWindow, payload.Strategy)
+	summary := fmt.Sprintf("%s ngữ cảnh %.0f%% (%d/%d) chiến lược: %s", agent, payload.Percent, payload.Tokens, payload.ContextWindow, payload.Strategy)
 
 	if payload.Strategy != "" {
-		// 触发了压缩 → 事件流 + 日志
+		// Compaction triggered → event stream + logs
 		ctxEv := Event{Time: time.Now(), Category: "SYSTEM", Agent: agent, Summary: summary, Level: level, Depth: 1}
 		o.emitEv(ctxEv)
 		o.persistEvent(ctxEv)
 	} else {
-		// 普通使用率报告 → 仅日志
+		// Ordinary usage report → logs only
 		slogLevel := slog.LevelInfo
 		if level == "warn" {
 			slogLevel = slog.LevelWarn

@@ -29,7 +29,7 @@ func TestBookStorePersistsCanonicalDataAndReadableProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if text := string(projection); !strings.Contains(text, "《长夜将明》") || !strings.Contains(text, "少年守住最后一盏灯。") {
+	if text := string(projection); !strings.Contains(text, "长夜将明") || !strings.Contains(text, "少年守住最后一盏灯。") {
 		t.Fatalf("unexpected book projection: %s", text)
 	}
 	if err := s.Book.Save(domain.BookMetadata{Title: "空简介"}); err == nil {

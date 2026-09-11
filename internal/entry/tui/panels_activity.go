@@ -11,9 +11,9 @@ import (
 	"github.com/voocel/ainovel-cli/internal/utils"
 )
 
-// renderEventContent 将事件列表渲染为层次化事件流。
-// DISPATCH 作为顶级标题，子代理工具缩进显示，形成清晰的调度树。
-// spinnerFrame 用于给"进行中"的行渲染动态图标（跟 topbar spinner 同步）。
+// renderEventContent renders the event list as a hierarchical event stream.
+// DISPATCH acts as the top-level heading with subagent tools indented beneath, forming a clear dispatch tree.
+// spinnerFrame renders the dynamic icon for "in progress" rows (kept in sync with the topbar spinner).
 func renderEventContent(events []host.Event, width, spinnerFrame int) string {
 	var b strings.Builder
 	for i, ev := range events {
@@ -25,7 +25,7 @@ func renderEventContent(events []host.Event, width, spinnerFrame int) string {
 	return b.String()
 }
 
-// 进行中的调用类事件使用的 spinner 帧（bubbles.Spinner.Dot，独立于顶栏 MiniDot）。
+// The spinner frame used by in-progress call events (bubbles.Spinner.Dot, independent of the top bar's MiniDot).
 var eventRunningFrames = toolSpinnerFrames
 
 func runningSpinner(frame int) string {
@@ -63,7 +63,7 @@ func renderEventLine(ev host.Event, width, spinnerFrame int) string {
 		return line
 
 	case ev.Category == "DISPATCH":
-		// 三态：进行中（accent spinner + 加粗）/ 失败（红 ✕）/ 完成（绿 ✓）
+		// Three states: in progress (accent spinner + bold) / failed (red ✕) / done (green ✓)
 		var icon string
 		switch {
 		case running:
@@ -75,7 +75,7 @@ func renderEventLine(ev host.Event, width, spinnerFrame int) string {
 		}
 		sum := renderDispatchSummary(ev.Summary, maxSumW)
 		if running {
-			// 进行中保持原样但加粗
+			// In progress stays as-is but bold
 			sum = lipgloss.NewStyle().Bold(true).Render(sum)
 		}
 		line := tsStr + " " + icon + " " + sum
@@ -85,7 +85,7 @@ func renderEventLine(ev host.Event, width, spinnerFrame int) string {
 		return line
 
 	case ev.Category == "TOOL":
-		// Worker 内部工具（Depth=1）
+		// Worker-internal tools (Depth=1)
 		var icon, sum string
 		switch {
 		case running:
@@ -128,8 +128,9 @@ func renderEventLine(ev host.Event, width, spinnerFrame int) string {
 		return tsStr + " " + indent + icon + " " + sum
 
 	case ev.Category == "USER":
-		// 用户在输入框发送的 Steer / Continue 文本回显；与 SYSTEM 的 ⚙ 拉开形态，用 ✎ 暗示"输入"。
-		// 颜色用 colorAccent2（青绿）与 SYSTEM 的金色拉开，避免误读为系统消息。
+		// Echoes Steer / Continue text the user sent from the input box; its shape is kept apart from SYSTEM's ⚙ and ✎ hints
+		// at "input". The colour is colorAccent2 (teal) to separate it from SYSTEM's gold and prevent it being misread as a
+		// system message.
 		icon := lipgloss.NewStyle().Foreground(colorAccent2).Bold(true).Render("✎")
 		sum := lipgloss.NewStyle().Foreground(colorAccent2).Render(truncate(ev.Summary, maxSumW))
 		return tsStr + " " + indent + icon + " " + sum
@@ -144,7 +145,7 @@ func renderEventLine(ev host.Event, width, spinnerFrame int) string {
 		return tsStr + " " + indent + icon + " " + sum
 
 	default:
-		// 已知 category 走映射色；未知 category 跟随终端默认前景，避免硬塞 colorText。
+		// A known category takes its mapped colour; an unknown one follows the terminal's default foreground rather than being forced into colorText.
 		if color, ok := categoryColors[ev.Category]; ok {
 			icon := lipgloss.NewStyle().Foreground(color).Render("·")
 			sum := lipgloss.NewStyle().Foreground(color).Render(truncate(ev.Summary, maxSumW))
@@ -155,9 +156,11 @@ func renderEventLine(ev host.Event, width, spinnerFrame int) string {
 	}
 }
 
-// retryCountdown 返回重试倒计时文案（"7s 后重试"）；未设截止或已到点（请求已在途）返回空。
-// 事件只携带截止时刻，剩余秒数在渲染时计算——spinner tick 驱动重绘即形成逐秒倒数，
-// 事件面板与导入面板共用（对齐"同 ID/Key 一行跳动"的原地更新机制）。
+// retryCountdown returns the retry countdown copy ("retrying in 7s"); empty when no deadline is set or it has passed (the
+// request is already in flight).
+// Events carry only the deadline and the remaining seconds are computed at render — the spinner tick driving the redraw
+// produces a per-second countdown, shared by the event panel and the import panel (aligning with the in-place update
+// mechanism of "one row ticking per ID/Key").
 func retryCountdown(retryAt, now time.Time) string {
 	if retryAt.IsZero() {
 		return ""
@@ -170,7 +173,7 @@ func retryCountdown(retryAt, now time.Time) string {
 	return fmt.Sprintf("Thử lại sau %ds", secs)
 }
 
-// renderDispatchSummary 渲染 DISPATCH 摘要：Agent 名用角色色，任务用淡色。
+// renderDispatchSummary renders the DISPATCH summary: the Agent name in its role colour and the task in a dim colour.
 func renderDispatchSummary(summary string, maxW int) string {
 	agentName := summary
 	taskPart := ""
@@ -194,7 +197,7 @@ func renderDispatchSummary(summary string, maxW int) string {
 	return result
 }
 
-// eventAgentColor 返回 Agent 角色对应的主题色。
+// eventAgentColor returns the theme colour for an Agent role.
 func eventAgentColor(agent string) lipgloss.AdaptiveColor {
 	switch {
 	case strings.HasPrefix(agent, "architect"):
@@ -208,7 +211,7 @@ func eventAgentColor(agent string) lipgloss.AdaptiveColor {
 	}
 }
 
-// renderEventDuration 将 Duration 渲染为淡色括号标注，零值返回空。
+// renderEventDuration renders Duration as a dim parenthesised annotation, empty for a zero value.
 func renderEventDuration(d time.Duration) string {
 	if d <= 0 {
 		return ""
@@ -266,9 +269,9 @@ func renderEventSparkle(frame, width int) string {
 	return " " + b.String()
 }
 
-// renderEventFlowViewport 用 viewport 包装渲染事件流面板。
+// renderEventFlowViewport wraps the rendered event stream panel in a viewport.
 func renderEventFlowViewport(vp viewport.Model, width, height int, focused bool) string {
-	// 标题栏
+	// Title bar
 	titleColor := colorDim
 	if focused {
 		titleColor = colorAccent
@@ -293,7 +296,7 @@ func renderEventFlowViewport(vp viewport.Model, width, height int, focused bool)
 	return header + "\n" + style.Render(vp.View())
 }
 
-// renderStreamPanel 渲染流式输出面板（中间列下半部分）。
+// renderStreamPanel renders the streaming output panel (the lower half of the middle column).
 func renderStreamPanel(vp viewport.Model, width, height int, focused, running bool, frame int) string {
 	titleStyle := lipgloss.NewStyle().Foreground(colorAccent).Bold(true).Underline(focused)
 	title := titleStyle.Render("▍Luồng Viết Trực Tiếp (Live Stream)")
@@ -308,10 +311,11 @@ func renderStreamPanel(vp viewport.Model, width, height int, focused, running bo
 	separator := lipgloss.NewStyle().Foreground(colorDim).Render(strings.Repeat("─", lineW))
 	header := " " + title + " " + separator
 
-	// viewport 内容（height 包含 header 行，viewport 实际高度需减 1）。
-	// 外层 vpStyle 不设 Foreground —— 章节正文颜色由 renderChapterBlock 内部的
-	// contentStyle 管（亮底深棕 / 暗底终端默认）。如果外层加 Foreground，亮底
-	// 主题下 agent 调度块（✻ 金色 + 青色 label）会被深棕"压"成普通正文色。
+	// Viewport content (height includes the header line, so the viewport's real height needs one deducted).
+	// The outer vpStyle sets no Foreground — the chapter prose colour is managed by contentStyle inside
+	// renderChapterBlock (dark brown on a light background, the terminal default on a dark one). With a Foreground on the
+	// outer style, the agent dispatch block (gold ✻ + cyan label) would be "pressed" into the ordinary prose colour by the
+	// dark brown under a light-background theme.
 	vpH := height - 1
 	if vpH < 1 {
 		vpH = 1
@@ -354,9 +358,9 @@ func renderStreamActivity(frame int) string {
 	return major + " " + minor
 }
 
-// renderStreamContent 将流式输出按轮次渲染为语义分块。
-// Agent 调度块（以 ▸ 或 ✻ 开头）用 accent 标题 + dim 指令；正文块跟随终端默认色。
-// cursor 非空时追加在末尾，表示 AI 正在输出。
+// renderStreamContent renders streaming output into semantic blocks by round.
+// An Agent dispatch block (starting with ▸ or ✻) gets an accent heading + dim instruction; prose blocks follow the
+// terminal's default colour. A non-empty cursor is appended at the end to show the AI is still writing.
 func renderStreamContent(rounds []string, width int, cursor string) string {
 	if width < 24 {
 		width = 24
@@ -381,19 +385,20 @@ func renderStreamContent(rounds []string, width int, cursor string) string {
 	return result
 }
 
-// renderAgentBlock 渲染 Agent 调度块：图标 + 标题 + 分隔线 + 任务指令。
+// renderAgentBlock renders an Agent dispatch block: icon + heading + divider + task instruction.
 //
-// label 用 colorAccent2 青绿 + Bold + Underline 三重强调 —— 之前 colorAccent
-// 金色 + Bold 在暗底跟 colorDim 灰的思考行视觉太接近，分不出主次。青绿是冷色，
-// 跟思考行用的暖灰在色相上完全拉开；Underline 在所有终端都稳定生效，比 Bold
-// 更可靠的视觉锚。图标 ✻ 反过来用金色作锚点，跟 label 形成双色对比。
+// The label uses a triple emphasis of colorAccent2 teal + Bold + Underline — the earlier colorAccent gold + Bold sat
+// visually too close to colorDim grey thinking rows on a dark background, blurring the hierarchy. Teal is a cool colour
+// that separates completely in hue from the warm grey used for thinking rows, and Underline takes effect reliably in every
+// terminal, a more dependable visual anchor than Bold. The ✻ icon, in turn, anchors in gold, giving a two-colour contrast
+// against the label.
 func renderAgentBlock(text string, width int) string {
 	headerLine, body, _ := strings.Cut(text, "\n")
 
 	iconStyle := lipgloss.NewStyle().Foreground(colorAccent).Bold(true)
 	labelStyle := lipgloss.NewStyle().Foreground(colorAccent2).Bold(true).Underline(true)
 
-	// 拆分前缀图标（✻ 或 ▸）和正文 label，分别染色；无图标的旧格式保持单色。
+	// Split the leading icon (✻ or ▸) from the text label and colour them separately; an old icon-less format stays monochrome.
 	var headerStyled string
 	if first, rest, ok := strings.Cut(headerLine, " "); ok && (first == "✻" || first == "▸") {
 		headerStyled = iconStyle.Render(first) + " " + labelStyle.Render(rest)
@@ -401,7 +406,7 @@ func renderAgentBlock(text string, width int) string {
 		headerStyled = labelStyle.Render(headerLine)
 	}
 
-	// 标题行 + 分隔线（lineW 用 headerLine 的视觉宽度而非渲染后的字节宽度）
+	// Heading line + divider (lineW uses headerLine's visual width rather than its rendered byte width)
 	titleW := lipgloss.Width(headerLine)
 	lineW := max(0, width-titleW-1)
 	header := headerStyled +
@@ -410,7 +415,7 @@ func renderAgentBlock(text string, width int) string {
 	var b strings.Builder
 	b.WriteString(header)
 
-	// 任务指令：dim 色，缩进 2 格；与 header 之间留一行空行，防止视觉贴一起。
+	// Task instruction: dim, indented two levels; a blank line separates it from the header so they do not visually stick together.
 	body = strings.TrimSpace(body)
 	if body != "" {
 		taskStyle := lipgloss.NewStyle().Foreground(colorMuted)
@@ -426,16 +431,17 @@ func renderAgentBlock(text string, width int) string {
 	return b.String()
 }
 
-// renderChapterBlock 渲染正文块，自动区分思考内容和章节正文。
-// 思考内容（ThinkingSep 标记的段落）用 colorDim 斜体；章节正文走 bodyTextColor：
-// 暗底继承终端默认前景，亮底用深棕保留暖调。
+// renderChapterBlock renders a prose block, automatically separating thinking content from chapter prose.
+// Thinking content (the segments marked by ThinkingSep) is colorDim italic; chapter prose goes through bodyTextColor:
+// inheriting the terminal's default foreground on a dark background, or a dark brown that keeps the warm tone on a light
+// one.
 func renderChapterBlock(text string, width int) string {
 	contentStyle := lipgloss.NewStyle().Foreground(bodyTextColor)
 	thinkStyle := lipgloss.NewStyle().Foreground(colorDim).Italic(true)
 	wrapW := max(16, width-4)
 
-	// 按 ThinkingSep 分割：奇数段是思考，偶数段是正文
-	// 格式：[正文] \x02 [思考] [正文] \x02 [思考] ...
+	// Split on ThinkingSep: odd segments are thinking, even segments are prose
+	// Format: [prose] \x02 [thinking] [prose] \x02 [thinking] ...
 	parts := strings.Split(text, utils.ThinkingSep)
 
 	var b strings.Builder
@@ -444,7 +450,7 @@ func renderChapterBlock(text string, width int) string {
 		if part == "" {
 			continue
 		}
-		isThinking := i > 0 && i%2 != 0 // ThinkingSep 之后的奇数段是思考
+		isThinking := i > 0 && i%2 != 0 // Odd segments after ThinkingSep are reasoning.
 
 		style := contentStyle
 		if isThinking {
@@ -454,7 +460,7 @@ func renderChapterBlock(text string, width int) string {
 		lines := wrapStreamText(part, wrapW)
 		for j, line := range lines {
 			if b.Len() > 0 && j == 0 {
-				b.WriteString("\n\n") // 段间空行：思考与正文之间留出视觉间隔
+				b.WriteString("\n\n") // Blank line between segments: visual gap between reasoning and prose.
 			} else if j > 0 {
 				b.WriteString("\n")
 			}

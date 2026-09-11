@@ -20,9 +20,9 @@ func TestStripChapterTitleHeader(t *testing.T) {
 		{"keep body even if no header", "正文第一句。\n第二句。", "", "正文第一句。\n第二句。"},
 		{"do not strip non-chapter heading", "# 序章\n他望着窗外。", "边村浮生", "# 序章\n他望着窗外。"},
 		{"single line header only", "# 第 1 章", "", ""},
-		// writer 把纯章节名当标题写进首行 → 与导出器统一标题重复，应剥掉
+		// The writer put a bare chapter name as the title in the first line → it duplicates the exporter's uniform title and should be stripped
 		{"strip h1 matching chapter title", "# 边村浮生\n\n天还没亮。", "边村浮生", "天还没亮。"},
-		// 首行 h1 但文字不等于本章标题 → 视为正文，保留
+		// A first-line h1 whose text is not this chapter's title → treated as prose and kept
 		{"keep h1 not matching title", "# 别的小标题\n正文。", "边村浮生", "# 别的小标题\n正文。"},
 	}
 	for _, c := range cases {
@@ -65,14 +65,14 @@ func TestBuildLocations(t *testing.T) {
 	}
 	locs := buildLocations(volumes)
 
-	// 只验卷归属：弧不再进 location，但弧层仍参与全局章号累加。
+	// Only volume membership is checked: arcs no longer enter location, but the arc layer still takes part in accumulating the global chapter number.
 	if loc := locs[1]; !loc.IsFirstOfVolume || loc.VolumeIdx != 1 {
 		t.Errorf("ch1 should be first of volume 1: %+v", loc)
 	}
 	if loc := locs[2]; loc.IsFirstOfVolume || loc.VolumeIdx != 1 {
 		t.Errorf("ch2 should be volume 1, not first: %+v", loc)
 	}
-	// ch3 是弧 2 的首章，但仍在卷 1 内 → 不是卷首。
+	// ch3 is the first chapter of arc 2 but still inside volume 1 → not a volume start.
 	if loc := locs[3]; loc.IsFirstOfVolume || loc.VolumeIdx != 1 {
 		t.Errorf("ch3 (arc 2, same volume) should not be first of volume: %+v", loc)
 	}
@@ -95,8 +95,8 @@ func TestRenderTXT_TitleAndChapter(t *testing.T) {
 	if !strings.HasPrefix(got, "《光斑》\n\n") {
 		t.Errorf("missing book title at start:\n%s", got)
 	}
-	// premise 不进导出：书名后应直接是章节，不夹任何前情提要
-	if !strings.Contains(got, "第 1 章  雨夜归人") {
+	// premise stays out of the export: chapters should follow the book title directly with no synopsis wedged in
+	if !strings.Contains(got, "Chương 1  雨夜归人") {
 		t.Errorf("missing ch1 header")
 	}
 	if !strings.Contains(got, "他望着窗外。") {
@@ -105,7 +105,7 @@ func TestRenderTXT_TitleAndChapter(t *testing.T) {
 	if strings.Contains(got, "# 第 1 章") {
 		t.Errorf("body markdown header not stripped:\n%s", got)
 	}
-	if !strings.Contains(got, "第 2 章  破晓") {
+	if !strings.Contains(got, "Chương 2  破晓") {
 		t.Errorf("missing ch2 header")
 	}
 }
@@ -121,13 +121,14 @@ func TestRenderTXT_EmptyBookTitleNoTitleLine(t *testing.T) {
 	if strings.Contains(got, "《") {
 		t.Errorf("should not contain book title brackets: %s", got)
 	}
-	if !strings.HasPrefix(got, "第 1 章  雨夜归人") {
+	if !strings.HasPrefix(got, "Chương 1  雨夜归人") {
 		t.Errorf("expect chapter header at very start: %s", got)
 	}
 }
 
-// TestRenderTXT_LayeredVolume 验证分层大纲只在卷首插卷分隔，弧分隔永不出现
-// （issue #27：版式定为"《书名》→卷分隔→章节正文"）。
+// TestRenderTXT_LayeredVolume checks that the layered outline inserts a volume
+// divider only at the start of a volume and never an arc divider
+// (issue #27: the layout is "book title -> volume divider -> chapter prose").
 func TestRenderTXT_LayeredVolume(t *testing.T) {
 	locs := map[int]chapterLocation{
 		1: {VolumeIdx: 1, VolumeTitle: "起源", IsFirstOfVolume: true},
@@ -139,14 +140,14 @@ func TestRenderTXT_LayeredVolume(t *testing.T) {
 		locs,
 		map[int]string{1: "正文一。", 2: "正文二。"},
 	)
-	if !strings.Contains(got, "第 1 卷  起源") {
+	if !strings.Contains(got, "Tập 1  起源") {
 		t.Errorf("missing volume header: %s", got)
 	}
 	if strings.Contains(got, "弧") {
 		t.Errorf("arc divider should never appear: %s", got)
 	}
-	// 卷标题只在第一章前出现一次
-	if strings.Count(got, "第 1 卷") != 1 {
+	// The volume title appears exactly once, before the first chapter
+	if strings.Count(got, "Tập 1") != 1 {
 		t.Errorf("volume header should appear exactly once: %s", got)
 	}
 }
@@ -154,11 +155,11 @@ func TestRenderTXT_LayeredVolume(t *testing.T) {
 func TestRenderTXT_ChapterWithoutTitleFallsBackToNumberOnly(t *testing.T) {
 	got := renderTXT(
 		"", []int{5},
-		chapterTitleIndex{}, // 没有标题
+		chapterTitleIndex{}, // no title
 		nil,
 		map[int]string{5: "正文。"},
 	)
-	if !strings.Contains(got, "第 5 章\n\n") {
-		t.Errorf("expect 'first 5 章' fallback header: %s", got)
+	if !strings.Contains(got, "Chương 5\n\n") {
+		t.Errorf("expect 'Chương 5' fallback header: %s", got)
 	}
 }

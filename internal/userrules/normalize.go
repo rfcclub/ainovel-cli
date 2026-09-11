@@ -1,11 +1,15 @@
-// Package userrules 是用户规则归一化的服务层：把各来源的自然语言规则经 LLM 结构化调用
-// 归一化成候选结构化字段，再由 rules.BuildSnapshot 确定性合并成本书快照。
+// Package userrules is the service layer for normalising user rules: natural-language rules from
+// each source go through an LLM structured call into candidate structured fields, which
+// rules.BuildSnapshot then merges deterministically into this book's snapshot.
 //
-// 分层职责：
-//   - rules 包：纯数据 + 确定性合并（Snapshot / Candidate / BuildSnapshot / SystemDefaults）
-//   - 本包：LLM 归一化 + 编排 + 落盘（依赖 agentcore + store + rules）
+// Layered responsibilities:
+//   - the rules package: pure data plus deterministic merging
+//     (Snapshot / Candidate / BuildSnapshot / SystemDefaults).
+//   - this package: LLM normalisation plus orchestration plus persistence (depends on agentcore,
+//     store and rules).
 //
-// 归一化是增强路径，不是主创作的前置条件：任何来源失败都降级为 raw preferences，主创作必须继续。
+// Normalisation is an enhancement path, not a precondition for writing: any source failing
+// degrades to raw preferences and the main writing flow must continue.
 package userrules
 
 import (
@@ -20,56 +24,61 @@ import (
 	"github.com/voocel/ainovel-cli/internal/rules"
 )
 
-// normalizeMaxTokens 单次归一化的输出上限（思考 token 与 JSON 输出共享这一预算）。
-// 归一化 JSON 本身很小（通常 <1k），这里留大头是给"无法关闭思考的推理模型"的思考预算——
-// 留窄了思考会挤占 JSON 导致截断、解析失败。max_tokens 是上限不是计费量，调大不增成本。
+// normalizeMaxTokens is the output cap for one normalisation (thinking tokens and the JSON output
+// share this budget).
+// The normalisation JSON itself is tiny (usually <1k); the bulk is headroom for reasoning models
+// that cannot turn thinking off — too narrow a cap lets thinking eat into the JSON, truncating it
+// and failing the parse. max_tokens is a cap, not a billed amount, so raising it costs nothing.
 const normalizeMaxTokens = 8192
 
-// normalizeContract 紧邻边界 DTO：全字段 required、fatigue_words 用对象数组
-// （strict 模式禁止动态 key 的 map），两种模式共用同一 DTO 约定。
+// normalizeContract sits next to its boundary DTO: every field required, and fatigue_words
+// expressed as an array of objects (strict mode forbids maps with dynamic keys). Both modes share
+// the same DTO convention.
 var normalizeContract = llmcontract.Contract{
 	Name:        "userrules_normalize",
-	Description: "把用户自然语言写作规则归一化为结构化字段",
+	Description: "Chuẩn hóa quy tắc viết bằng ngôn ngữ tự nhiên của người dùng thành các trường có cấu trúc",
 	Schema: schema.Object(
 		schema.Property("structured", schema.Object(
-			schema.Property("genre", schema.String("题材;无则空字符串")).Required(),
-			schema.Property("forbidden_chars", schema.Array("禁止出现的字符", schema.String("字符"))).Required(),
-			schema.Property("forbidden_phrases", schema.Array("禁止出现的短语(字面精确匹配)", schema.String("短语"))).Required(),
-			schema.Property("fatigue_words", schema.Array("疲劳词及每章出现上限", schema.Object(
-				schema.Property("word", schema.String("疲劳词")).Required(),
-				schema.Property("max_per_chapter", schema.Int("每章出现次数上限(正整数)")).Required(),
+			schema.Property("genre", schema.String("Thể loại; không có thì để chuỗi rỗng")).Required(),
+			schema.Property("forbidden_chars", schema.Array("Ký tự bị cấm xuất hiện", schema.String("Ký tự"))).Required(),
+			schema.Property("forbidden_phrases", schema.Array("Cụm từ bị cấm xuất hiện (khớp chính xác từng chữ)", schema.String("Cụm từ"))).Required(),
+			schema.Property("fatigue_words", schema.Array("Từ nhàm và số lần xuất hiện tối đa mỗi chương", schema.Object(
+				schema.Property("word", schema.String("Từ nhàm")).Required(),
+				schema.Property("max_per_chapter", schema.Int("Số lần xuất hiện tối đa mỗi chương (số nguyên dương)")).Required(),
 			))).Required(),
 		)).Required(),
-		schema.Property("preferences", schema.String("自然语言风格/人物/审美偏好;无则空字符串")).Required(),
-		schema.Property("uncertain", schema.Array("故意未提升到 structured 的项+原因", schema.String("条目"))).Required(),
+		schema.Property("preferences", schema.String("Sở thích về văn phong/nhân vật/thẩm mỹ bằng ngôn ngữ tự nhiên; không có thì để chuỗi rỗng")).Required(),
+		schema.Property("uncertain", schema.Array("Các mục cố ý không nâng vào structured kèm lý do", schema.String("Mục"))).Required(),
 	),
 }
 
-// Normalizer 把单个来源的自然语言规则归一化成 rules.Candidate。
+// Normalizer turns one source's natural-language rules into a rules.Candidate.
 type Normalizer struct {
 	model agentcore.ChatModel
 }
 
-// NewNormalizer 用一个 ChatModel 构造归一化器。归一化是一次性启动工具，
-// 应传入能力较强的模型（如 ModelSet 的默认模型），不必跟随写作的弱模型。
+// NewNormalizer builds a normaliser around one ChatModel. Normalisation is a one-off startup
+// tool, so pass a capable model (such as the ModelSet default) rather than following the weaker
+// writing model.
 //
-// 归一化不覆盖 thinking：显式 off 本身也是只有部分模型支持的推理参数，
-// 普通 chat 模型会拒绝它。沿用 provider/model 默认，由 normalizeMaxTokens
-// 为不可关闭思考的模型预留输出预算。
+// Normalisation does not override thinking: an explicit off is itself a reasoning parameter only
+// some models support, and an ordinary chat model rejects it. Keep the provider/model default and
+// let normalizeMaxTokens reserve output budget for models whose thinking cannot be disabled.
 func NewNormalizer(model agentcore.ChatModel) *Normalizer {
 	return &Normalizer{model: model}
 }
 
-// Normalize 归一化一个来源。失败返回 error（含真实原因），由调用方决定降级
-// （Service.normalizeOrDegrade 落 degraded 候选）——技术错误不再伪装成正常结果，
-// 终止错误（鉴权/权限等）不重试。
+// Normalize normalises one source. On failure it returns an error (with the real cause) and the
+// caller decides whether to degrade (Service.normalizeOrDegrade records a degraded candidate) —
+// a technical error no longer masquerades as a normal result, and terminal errors (auth,
+// permission and so on) are not retried.
 func (n *Normalizer) Normalize(ctx context.Context, source, text string) (rules.Candidate, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return rules.Candidate{Source: source}, nil
 	}
 	if n == nil || n.model == nil {
-		return rules.Candidate{}, fmt.Errorf("归一化模型未配置")
+		return rules.Candidate{}, fmt.Errorf("chưa cấu hình model chuẩn hóa")
 	}
 
 	out, err := llmcontract.Execute(ctx, n.model, llmcontract.Request[normalizerOutput]{
@@ -84,36 +93,39 @@ func (n *Normalizer) Normalize(ctx context.Context, source, text string) (rules.
 		Agent: "rules",
 		Hooks: llmcontract.Hooks{
 			Resolved: func(res llmcontract.Resolution) {
-				slog.Debug("规则归一化协议选择", "module", "rules", "source", source,
+				slog.Debug("chọn giao thức chuẩn hóa quy tắc", "module", "rules", "source", source,
 					"contract", normalizeContract.Name, "structured_mode", res.Mode,
 					"capability_source", res.Source, "provider", res.Provider, "model", res.Model,
 					"schema_fingerprint", normalizeContract.Fingerprint())
 			},
 			Correction: func(ev llmcontract.Correction) {
-				slog.Warn("规则归一化输出自愈", "module", "rules", "source", source,
+				slog.Warn("tự sửa kết quả chuẩn hóa quy tắc", "module", "rules", "source", source,
 					"attempt", ev.Attempt, "layer", ev.Layer, "structured_mode", ev.Mode, "err", ev.Err)
 			},
 		},
 	})
 	if err != nil {
-		return rules.Candidate{}, fmt.Errorf("归一化失败: %w", err)
+		return rules.Candidate{}, fmt.Errorf("chuẩn hóa thất bại: %w", err)
 	}
 	return out.toCandidate(source)
 }
 
-// degraded 构造一个降级候选：归一化失败时把原文当作风格偏好，不提炼任何机械规则。
-// uncertain 标注来源（便于回显"哪些来源未能解析"），但不含技术错误细节——技术错误只进日志。
+// degraded builds a degraded candidate: when normalisation fails the raw text becomes the style
+// preference and no mechanical rule is distilled. uncertain marks the source (so the UI can
+// report "which sources could not be parsed") but carries no technical error detail — those go to
+// the log only.
 func degraded(source, text string) rules.Candidate {
 	return rules.Candidate{
 		Source:      source,
 		Preferences: text,
-		Uncertain:   []string{source + "：归一化失败，已按原文作为风格偏好处理（未提炼机械规则）"},
+		Uncertain:   []string{source + ": chuẩn hóa thất bại, đã xử lý nguyên văn như sở thích văn phong (chưa trích xuất quy tắc cơ học)"},
 		Degraded:    true,
 	}
 }
 
-// normalizerOutput 是归一化器约定的边界 DTO（两种模式共用）：uncertain 固定
-// 字符串数组，fatigue_words 固定对象数组——形态由契约钉死，不再多形态猜测。
+// normalizerOutput is the boundary DTO the normaliser agrees on (shared by both modes): uncertain
+// is always a string array and fatigue_words always an array of objects — the shape is pinned by
+// the contract, so there is no guessing between variants.
 type normalizerOutput struct {
 	Structured  normalizerStructured `json:"structured"`
 	Preferences string               `json:"preferences"`
@@ -132,17 +144,18 @@ type fatigueWordEntry struct {
 	MaxPerChapter int    `json:"max_per_chapter"`
 }
 
-// toCandidate 校验边界 DTO 并转成领域候选：fatigue 条目须词非空、上限为正整数
-// （校验错误可反馈给模型修正），领域侧仍是 map[string]int。
+// toCandidate validates the boundary DTO and converts it into a domain candidate: each fatigue
+// entry needs a non-empty word and a positive integer cap (validation errors can be fed back to
+// the model for correction), and the domain side stays a map[string]int.
 func (o normalizerOutput) toCandidate(source string) (rules.Candidate, error) {
 	var fatigue map[string]int
 	for _, e := range o.Structured.FatigueWords {
 		word := strings.TrimSpace(e.Word)
 		if word == "" {
-			return rules.Candidate{}, fmt.Errorf("fatigue_words 含空词条目")
+			return rules.Candidate{}, fmt.Errorf("fatigue_words chứa mục từ rỗng")
 		}
 		if e.MaxPerChapter < 1 {
-			return rules.Candidate{}, fmt.Errorf("fatigue_words[%q].max_per_chapter 必须是正整数, got %d", word, e.MaxPerChapter)
+			return rules.Candidate{}, fmt.Errorf("fatigue_words[%q].max_per_chapter phải là số nguyên dương, nhận %d", word, e.MaxPerChapter)
 		}
 		if fatigue == nil {
 			fatigue = make(map[string]int, len(o.Structured.FatigueWords))
@@ -172,17 +185,19 @@ func nonEmpty(in []string) []string {
 	return out
 }
 
-// normalizerSystemPrompt 只描述归一化语义，输出结构由 normalizeContract 单点维护。
-// 已用 10 条真实例子（含阈值发明陷阱）验证保守提升成立（10/10）。
-const normalizerSystemPrompt = `你是 AI 小说写作系统的「规则归一化器」。你读取用户某一个来源的长期写作规则（自然语言），把明确且可机械检查的规则提升到 structured，其余内容归入 preferences 或 uncertain。
+// normalizerSystemPrompt only describes normalisation semantics; the output structure
+// is maintained at a single point by normalizeContract.
+// Ten real examples (including the invented-threshold trap) confirmed the conservative
+// promotion rule holds (10/10).
+const normalizerSystemPrompt = `Bạn là "Bộ chuẩn hóa quy tắc" của hệ thống viết tiểu thuyết AI. Bạn đọc quy tắc viết dài hạn từ một nguồn của người dùng (ngôn ngữ tự nhiên), nâng những quy tắc rõ ràng và có thể kiểm tra cơ học vào structured, phần còn lại đưa vào preferences hoặc uncertain.
 
-【保守提升——最重要】
-- 只有用户明确、无歧义时才写入 structured。
-- forbidden_chars/forbidden_phrases 是 error 级:只有「不要出现X/禁用X/别写X」这类明确禁止才提升。
-- fatigue_words:只有同时给出「明确的词」和「明确的次数阈值」才提升;「少用X/别老用X」没给数字的放进 preferences,绝不自己发明阈值。
-- 字数/篇幅类意愿(「每章3000字」「短一点」)一律放 preferences:章节长度是叙事节奏问题,由创作时自然把握,不做机械检查。
-- 不可机械检查、无明确阈值、依赖语境的,一律放 preferences。
-- 原则:宁可漏进 structured,也不要错误提升(那会每章误报)。
+【Nâng thận trọng — quan trọng nhất】
+- Chỉ ghi vào structured khi người dùng nói rõ ràng, không mơ hồ.
+- forbidden_chars/forbidden_phrases là mức error: chỉ nâng khi có lệnh cấm rõ ràng kiểu "đừng xuất hiện X / cấm dùng X / chớ viết X".
+- fatigue_words: chỉ nâng khi có đồng thời "từ cụ thể" và "ngưỡng số lần cụ thể"; "bớt dùng X / đừng lúc nào cũng dùng X" mà không có số thì đưa vào preferences, tuyệt đối không tự bịa ngưỡng.
+- Mọi mong muốn về số chữ/độ dài ("mỗi chương 3000 chữ", "ngắn một chút") đều đưa vào preferences: độ dài chương là vấn đề nhịp điệu tự sự, do lúc sáng tác tự nắm bắt, không kiểm tra cơ học.
+- Những gì không kiểm tra được bằng máy, không có ngưỡng rõ ràng, phụ thuộc ngữ cảnh thì đưa hết vào preferences.
+- Nguyên tắc: thà bỏ sót khỏi structured còn hơn nâng sai (nâng sai sẽ báo lỗi giả ở mọi chương).
 
-preferences 用一段可读的自然语言保留风格、人物与审美偏好。
-uncertain 说明你故意没有提升到 structured 的项目及原因。`
+preferences giữ sở thích về văn phong, nhân vật và thẩm mỹ bằng một đoạn ngôn ngữ tự nhiên dễ đọc.
+uncertain nêu rõ những mục bạn cố ý không nâng vào structured kèm lý do.`

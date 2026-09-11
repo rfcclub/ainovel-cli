@@ -1,10 +1,10 @@
 package host
 
-// Engine 端到端集成测试(engine-rfc.md §7 原型验收):
-// 真实 store + 真实 Worker 工具 + 脚本化 ChatModel,验证
-//  1. Route 驱动的完整写书链路:写第1章 → 写第2章 → 完本 → 引擎自然停机
-//  2. Worker 失败路径:重试一次 → Arbiter worker_failure 裁定 abort → 暂停 + 审计落盘
-//  3. 僵局路径:同指令无进展 ×3 → Arbiter deadlock 裁定 → 审计落盘 → abort 停机
+// Engine end-to-end integration tests (engine-rfc.md §7 prototype acceptance): a real store, real Worker
+// tools and a scripted ChatModel, verifying
+//  1. The full Route-driven writing chain: write ch1 → write ch2 → complete → the engine stops naturally
+//  2. The Worker failure path: retry once → Arbiter worker_failure verdict abort → pause + audit on disk
+//  3. The deadlock path: no progress on the same instruction ×3 → Arbiter deadlock verdict → audit on disk → abort
 
 import (
 	"context"
@@ -30,7 +30,7 @@ import (
 	"github.com/voocel/ainovel-cli/internal/tools"
 )
 
-// scriptedChatModel 按回调产出响应的最小 ChatModel。
+// scriptedChatModel is a minimal ChatModel producing responses from a callback.
 type scriptedChatModel struct {
 	fn func(msgs []agentcore.Message) agentcore.Message
 }
@@ -104,7 +104,7 @@ func TestInterventionDispatchTaskPreservesOriginalAuthority(t *testing.T) {
 	if !strings.Contains(got, original) {
 		t.Fatalf("用户原始干预未被逐字保留: %q", got)
 	}
-	if !strings.Contains(got, "修改授权的唯一来源") {
+	if !strings.Contains(got, "nguồn uỷ quyền sửa đổi duy nhất") {
 		t.Fatalf("缺少授权边界说明: %q", got)
 	}
 }
@@ -123,8 +123,8 @@ func (m *scriptedChatModel) GenerateStream(ctx context.Context, msgs []agentcore
 
 func (m *scriptedChatModel) SupportsTools() bool { return true }
 
-// editThenCancelModel 复现 #84：每次 Worker 都成功产生一个内容不同的
-// edit checkpoint，随后在同一 run 内返回 context canceled，始终没有 commit。
+// editThenCancelModel reproduces #84: every Worker successfully produces an edit checkpoint with different
+// content, then returns context canceled within the same run, never committing.
 type editThenCancelModel struct {
 	edits atomic.Int32
 }
@@ -154,8 +154,8 @@ func (m *editThenCancelModel) GenerateStream(ctx context.Context, msgs []agentco
 
 func (m *editThenCancelModel) SupportsTools() bool { return true }
 
-// providerNetworkModel 模拟 Worker 在任何模型输出前即遭遇瞬态网络故障。
-// MaxRetries=0 时每次 subagent.Run 对应一次调用，便于验证 Engine 重试计数。
+// providerNetworkModel simulates a Worker hitting a transient network fault before any model output. With
+// MaxRetries=0 each subagent.Run maps to one call, making the Engine's retry count easy to verify.
 type providerNetworkModel struct {
 	calls atomic.Int32
 }
@@ -191,10 +191,12 @@ func testTextMsg(text string) agentcore.Message {
 	}
 }
 
-var chapterRe = regexp.MustCompile(`写第 (\d+) 章`)
+// Matches both the continue dispatch ("Viết chương N") and the rework dispatch
+// ("viết lại chương N" / "gọt giũa chương N").
+var chapterRe = regexp.MustCompile(`(?i)chương (\d+)`)
 
-// scriptedWriterModel 按对话内已有的 tool 结果数决定下一步,
-// 走完整 plan → draft → check → commit 序列(真实工具,真实落盘)。
+// scriptedWriterModel decides its next step from the number of tool results already in the conversation,
+// walking the full plan → draft → check → commit sequence (real tools, real persistence).
 func scriptedWriterModel() *scriptedChatModel {
 	return &scriptedChatModel{fn: func(msgs []agentcore.Message) agentcore.Message {
 		chapter := 0
@@ -234,7 +236,7 @@ func scriptedWriterModel() *scriptedChatModel {
 	}}
 }
 
-// newTestEngine 组装带真实 store/observer 的引擎;返回引擎、事件采集与完成信号。
+// newTestEngine assembles an engine with a real store/observer; it returns the engine, the event collector and a completion signal.
 func newTestEngine(t *testing.T, st *storepkg.Store, workers *subagent.Runner, arbiterModel agentcore.ChatModel) (*engine, *[]Event, chan struct{}) {
 	t.Helper()
 	if err := st.RunMeta.Init("default", "test", "test"); err != nil {
@@ -376,7 +378,7 @@ func TestEngine_StalePairedDispatchDoesNotBypassHold(t *testing.T) {
 	}
 }
 
-// TestEngine_WritesBookToCompletion 完整链路:两章非分层书从 writing 写到 complete。
+// TestEngine_WritesBookToCompletion covers the whole chain: a two-chapter non-layered book written from writing through to complete.
 func TestEngine_WritesBookToCompletion(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	if err := st.Init(); err != nil {
@@ -425,7 +427,7 @@ func TestEngine_WritesBookToCompletion(t *testing.T) {
 	if len(progress.CompletedChapters) != 2 {
 		t.Fatalf("应完成 2 章, got %v", progress.CompletedChapters)
 	}
-	// 事件形状:每章一条 DISPATCH(engine 发起),TOOL 行来自进度中继
+	// Event shape: one DISPATCH per chapter (emitted by the engine) and TOOL rows from the progress relay
 	var dispatches, toolRows int
 	for _, ev := range *events {
 		switch ev.Category {
@@ -443,8 +445,8 @@ func TestEngine_WritesBookToCompletion(t *testing.T) {
 	}
 }
 
-// TestEngine_WorkerFailureConsultsArbiterAndAborts 失败路径:
-// 空转 writer 被 StopGuard 升级 → 重试一次 → Arbiter 裁定 abort → 暂停 + 审计。
+// TestEngine_WorkerFailureConsultsArbiterAndAborts covers the failure path: an idling writer is escalated by
+// the StopGuard → retry once → Arbiter verdict abort → pause + audit.
 func TestEngine_WorkerFailureConsultsArbiterAndAborts(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	if err := st.Init(); err != nil {
@@ -461,7 +463,7 @@ func TestEngine_WorkerFailureConsultsArbiterAndAborts(t *testing.T) {
 	}
 
 	var runs atomic.Int32
-	// writer 每轮只回文字不落盘 → guard.NewWriterStopGuard 连续拦截后升级 → Execute 报错
+	// The writer returns only text each round without persisting → guard.NewWriterStopGuard intercepts repeatedly then escalates → Execute errors
 	idle := &scriptedChatModel{fn: func([]agentcore.Message) agentcore.Message {
 		return testTextMsg("我写完了(其实什么都没做)")
 	}}
@@ -473,7 +475,7 @@ func TestEngine_WorkerFailureConsultsArbiterAndAborts(t *testing.T) {
 			return failNTimesGuard()
 		},
 	}
-	// Arbiter 裁定 abort
+	// The Arbiter verdicts abort
 	arb := &scriptedChatModel{fn: func([]agentcore.Message) agentcore.Message {
 		return testTextMsg(`{"action":"abort","dispatch":null,"reason":"writer 反复空转,建议人工检查模型配置"}`)
 	}}
@@ -505,7 +507,7 @@ func TestEngine_WorkerFailureConsultsArbiterAndAborts(t *testing.T) {
 	}
 }
 
-// seedStuckRewrite 造出"第 2 章已完成并排进返工队列"的现场。
+// seedStuckRewrite sets up "chapter 2 complete and queued for rework".
 func seedStuckRewrite(t *testing.T, st *storepkg.Store) {
 	t.Helper()
 	if err := st.Init(); err != nil {
@@ -528,9 +530,10 @@ func seedStuckRewrite(t *testing.T, st *storepkg.Store) {
 	}
 }
 
-// TestEngine_DeadlockAbortDropsStuckRewrite 锁死 issue #110 的死锁面：僵局熔断时
-// 卡死的返工章必须出队。PendingRewrites 是持久化事实，只暂停不出队的话重启会立刻
-// 重放同一条死指令，把整本书永久锁死。
+// TestEngine_DeadlockAbortDropsStuckRewrite pins down issue #110's deadlock surface: when the deadlock
+// breaker trips, the stuck rework chapter must leave the queue. PendingRewrites is a persisted fact, and
+// pausing without dequeuing would make a restart replay the same dead instruction at once, locking the whole
+// book permanently.
 func TestEngine_DeadlockAbortDropsStuckRewrite(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	seedStuckRewrite(t, st)
@@ -554,7 +557,7 @@ func TestEngine_DeadlockAbortDropsStuckRewrite(t *testing.T) {
 	}
 	var notified bool
 	for _, ev := range *events {
-		if strings.Contains(ev.Summary, "移出返工队列") {
+		if strings.Contains(ev.Summary, "khỏi hàng đợi làm lại") {
 			notified = true
 		}
 	}
@@ -563,8 +566,9 @@ func TestEngine_DeadlockAbortDropsStuckRewrite(t *testing.T) {
 	}
 }
 
-// TestEngine_DropStuckRewriteOnlyTouchesQueuedChapter 出队是破坏性动作，误伤面必须钉死：
-// 只有"排在返工队列里的那一章"可以被移出，其余指令一律不动队列。
+// TestEngine_DropStuckRewriteOnlyTouchesQueuedChapter: dequeuing is a destructive action whose blast radius
+// must be pinned down — only "the chapter sitting in the rework queue" may be removed, and any other
+// instruction leaves the queue untouched.
 func TestEngine_DropStuckRewriteOnlyTouchesQueuedChapter(t *testing.T) {
 	cases := []struct {
 		name string
@@ -594,9 +598,9 @@ func TestEngine_DropStuckRewriteOnlyTouchesQueuedChapter(t *testing.T) {
 	}
 }
 
-// TestEngine_TransientProviderFailuresDoNotBecomeDeadlock 回归第 135 章故障链：
-// 两轮网络失败后的 worker_failure=retry 不能在下一轮被 trackDeadlock 当成
-// “同一写作任务连续无进展”并触发 deadlock 改派。
+// TestEngine_TransientProviderFailuresDoNotBecomeDeadlock is a regression for the chapter-135 failure chain:
+// a worker_failure=retry after two network failures must not be taken by trackDeadlock on the next round as
+// "no progress on the same writing task" and trigger a deadlock re-dispatch.
 func TestEngine_TransientProviderFailuresDoNotBecomeDeadlock(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	if err := st.Init(); err != nil {
@@ -664,16 +668,18 @@ func TestEngine_TransientProviderFailuresDoNotBecomeDeadlock(t *testing.T) {
 	}
 }
 
-// failNTimesGuard 立即升级的 StopGuard(模拟空转熔断)。
+// failNTimesGuard is a StopGuard that escalates immediately (simulating an idling circuit breaker).
 func failNTimesGuard() agentcore.StopGuard {
 	return func(context.Context, agentcore.StopInfo) agentcore.StopDecision {
 		return agentcore.StopDecision{Allow: false, Escalate: true}
 	}
 }
 
-// TestEngine_RetriesUnfinishedPlanStart 启动裁定失败后的自愈路径:StartPrompt 已落盘、
-// PlanStart 缺位(启动时模型故障)→ 引擎起动时现场补裁 → 固化 PlanStartRecord → 派发规划师。
-// 规划师不落盘 → 走既有僵局路径停机,证明补裁后引擎回到正常轨道。
+// TestEngine_RetriesUnfinishedPlanStart covers the self-healing path after a failed start adjudication:
+// StartPrompt is on disk while PlanStart is absent (a model fault at startup) → the engine adjudicates on the
+// spot at start → freezes the PlanStartRecord → dispatches the planner. The planner not persisting → it takes
+// the existing deadlock path to a stop, proving the engine is back on a normal track after the catch-up
+// adjudication.
 func TestEngine_RetriesUnfinishedPlanStart(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	if err := st.Init(); err != nil {
@@ -682,12 +688,12 @@ func TestEngine_RetriesUnfinishedPlanStart(t *testing.T) {
 	if err := st.Progress.Init(0); err != nil {
 		t.Fatalf("progress: %v", err)
 	}
-	// 模拟 StartPrepared 失败现场:输入事实在,裁定事实缺位。
+	// Simulate the StartPrepared failure scene: the input fact is present while the adjudication fact is absent.
 	if err := st.RunMeta.SetStartPrompt("凡人修仙"); err != nil {
 		t.Fatalf("start prompt: %v", err)
 	}
 
-	// Arbiter:首次调用是补裁(plan_start),之后是僵局咨询(abort 收尾)。
+	// Arbiter: the first call is the catch-up adjudication (plan_start) and later ones are deadlock consultations (ending in abort).
 	var arbCalls atomic.Int32
 	arb := &scriptedChatModel{fn: func([]agentcore.Message) agentcore.Message {
 		if arbCalls.Add(1) == 1 {
@@ -695,7 +701,7 @@ func TestEngine_RetriesUnfinishedPlanStart(t *testing.T) {
 		}
 		return testTextMsg(`{"action":"abort","dispatch":null,"reason":"规划师空转,停机"}`)
 	}}
-	// 规划师成功返回但不落任何盘 → Route 始终返回同一补齐指令 → 僵局。
+	// The planner returns successfully but persists nothing → Route keeps returning the same catch-up instruction → deadlock.
 	architect := subagent.Config{
 		Name: "architect_long", Description: "idle planner",
 		Model: &scriptedChatModel{fn: func([]agentcore.Message) agentcore.Message {
@@ -735,7 +741,7 @@ func TestEngine_RetriesUnfinishedPlanStart(t *testing.T) {
 		if ev.Category == "DISPATCH" {
 			dispatched = true
 		}
-		if strings.Contains(ev.Summary, "启动裁定已补齐") {
+		if strings.Contains(ev.Summary, "phán định khởi động đã bổ sung") {
 			healed = true
 		}
 	}
@@ -744,8 +750,8 @@ func TestEngine_RetriesUnfinishedPlanStart(t *testing.T) {
 	}
 }
 
-// TestEngine_PlanStartRetryFailurePauses 补裁失败不允许无声停机:
-// Arbiter 持续不可用 → 显式暂停回显 + plan_start 审计带 error + 零派发。
+// TestEngine_PlanStartRetryFailurePauses: a failed catch-up adjudication must not stop silently — the Arbiter
+// stays unavailable → an explicit pause echo + a plan_start audit carrying the error + zero dispatches.
 func TestEngine_PlanStartRetryFailurePauses(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	if err := st.Init(); err != nil {
@@ -777,7 +783,7 @@ func TestEngine_PlanStartRetryFailurePauses(t *testing.T) {
 	}
 	var paused bool
 	for _, ev := range *events {
-		if strings.Contains(ev.Summary, "启动裁定失败") {
+		if strings.Contains(ev.Summary, "phán định khởi động thất bại") {
 			paused = true
 		}
 	}
@@ -799,8 +805,8 @@ func TestEngine_PlanStartRetryFailurePauses(t *testing.T) {
 	}
 }
 
-// TestEngine_DeadlockConsultsArbiter 僵局路径:规划补齐指令连续重现
-// → 第 3 次咨询 Arbiter → abort 停机 + deadlock 审计。
+// TestEngine_DeadlockConsultsArbiter covers the deadlock path: the planning catch-up instruction recurs
+// → the third time consults the Arbiter → abort stop + deadlock audit.
 func TestEngine_DeadlockConsultsArbiter(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	if err := st.Init(); err != nil {
@@ -809,12 +815,12 @@ func TestEngine_DeadlockConsultsArbiter(t *testing.T) {
 	if err := st.Progress.Init(3); err != nil {
 		t.Fatalf("progress: %v", err)
 	}
-	// 规划期 + tier 已知 + 缺项恒在 → Route 每轮产出同一补齐指令
+	// Planning stage + known tier + a permanently missing item → Route produces the same catch-up instruction every round
 	if err := st.RunMeta.SetPlanningTier(domain.PlanningTierLong); err != nil {
 		t.Fatalf("tier: %v", err)
 	}
 
-	// architect 无守卫、成功返回但不落任何盘 → Route 指令恒定
+	// The architect has no guard and returns successfully without persisting anything → the Route instruction is constant
 	lazy := &scriptedChatModel{fn: func([]agentcore.Message) agentcore.Message {
 		return testTextMsg("知道了(什么也不做)")
 	}}
@@ -847,9 +853,9 @@ func TestEngine_DeadlockConsultsArbiter(t *testing.T) {
 	}
 }
 
-// TestEngine_IntermediateCheckpointsDoNotMaskDeadlock 锁定 #84：Writer 反复修改
-// 草稿会产生新 digest 和新 edit checkpoint，但只要 Route 仍是同一个
-// “打磨第 1 章”，就说明 Engine 级后置条件(commit)未完成，必须继续累计僵局。
+// TestEngine_IntermediateCheckpointsDoNotMaskDeadlock pins down #84: a Writer repeatedly editing the draft
+// produces new digests and new edit checkpoints, but as long as Route still says "polish chapter 1" the
+// Engine-level postcondition (commit) is unmet and the deadlock count must keep accumulating.
 func TestEngine_IntermediateCheckpointsDoNotMaskDeadlock(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	if err := st.Init(); err != nil {
@@ -884,8 +890,8 @@ func TestEngine_IntermediateCheckpointsDoNotMaskDeadlock(t *testing.T) {
 		Tools:    []agentcore.Tool{tools.NewEditChapterTool(st)},
 		MaxTurns: 5,
 	}
-	// 即使 Arbiter 对 worker_failure / deadlock 一直要求 retry，现有第 5 次
-	// 硬熔断也必须在派发前截停，不得被 edit checkpoint 重置。
+	// Even if the Arbiter keeps demanding retry on worker_failure / deadlock, the existing fifth-attempt hard
+	// breaker must stop it before dispatching and must not be reset by an edit checkpoint.
 	arb := &scriptedChatModel{fn: func([]agentcore.Message) agentcore.Message {
 		return testTextMsg(`{"action":"retry","dispatch":null,"reason":"继续重试"}`)
 	}}
@@ -932,9 +938,10 @@ func TestEngine_IntermediateCheckpointsDoNotMaskDeadlock(t *testing.T) {
 	}
 }
 
-// TestEngine_PauseWithEditorDispatchWaitsForRewriteQueue 修复验证(评审阻断2):
-// Arbiter 返工裁定 = 停靠点 + 派 editor 入队。停靠点必须等 editor 建立返工队列、
-// writer 重写排空之后才消费——不能在 editor 执行前被"队列已排空"误判消费。
+// TestEngine_PauseWithEditorDispatchWaitsForRewriteQueue verifies the fix (review block 2): an Arbiter
+// rework verdict = a hold point + an editor dispatch to enqueue. The hold point must only be consumed after
+// the editor has built the rework queue and the writer's rewrites have drained — it must not be wrongly
+// consumed by "the queue is already empty" before the editor runs.
 func TestEngine_PauseWithEditorDispatchWaitsForRewriteQueue(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	if err := st.Init(); err != nil {
@@ -953,7 +960,7 @@ func TestEngine_PauseWithEditorDispatchWaitsForRewriteQueue(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("outline: %v", err)
 	}
-	// 第 1 章已完成(将被返工);writer worker 会先重写它,然后停靠点消费。
+	// Chapter 1 is complete (and due for rework); the writer worker rewrites it first, after which the hold point is consumed.
 	if err := st.Progress.StartChapter(1); err != nil {
 		t.Fatalf("start ch1: %v", err)
 	}
@@ -961,7 +968,7 @@ func TestEngine_PauseWithEditorDispatchWaitsForRewriteQueue(t *testing.T) {
 		t.Fatalf("complete ch1: %v", err)
 	}
 
-	// editor:一次 save_review(verdict=rewrite, affected=[1]) 把第 1 章入队。
+	// editor: one save_review (verdict=rewrite, affected=[1]) queues chapter 1.
 	editorModel := &scriptedChatModel{fn: func(msgs []agentcore.Message) agentcore.Message {
 		toolResults := 0
 		for _, m := range msgs {
@@ -1010,7 +1017,7 @@ func TestEngine_PauseWithEditorDispatchWaitsForRewriteQueue(t *testing.T) {
 	}
 
 	e, _, done := newTestEngine(t, st, subagent.NewRunner(editor, writer), nil)
-	// 模拟 Arbiter 返工裁定:hold + dispatch editor(引擎未运行 → 立即应用)。
+	// Simulate an Arbiter rework verdict: hold + dispatch editor (the engine is not running → applied at once).
 	e.applyControlOp(context.Background(), controlOp{
 		hold:     &arbiter.AdvanceHoldOp{After: domain.AdvanceHoldAfterRewritesDrained, Reason: "重写第1章语气,改完暂停验收"},
 		dispatch: &arbiter.DispatchOp{Agent: "editor", Task: "复核第 1 章：语气改冷，用 issues[].chapters 与 requires_change 入队"},
@@ -1025,15 +1032,15 @@ func TestEngine_PauseWithEditorDispatchWaitsForRewriteQueue(t *testing.T) {
 	if err != nil || progress == nil {
 		t.Fatalf("load progress: %v", err)
 	}
-	// 核心断言①:停靠点没有在 editor 入队前消费——第 1 章确实经历了重写
-	//(重写 commit 会把它从队列 drain 掉)。
+	// Core assertion 1: the hold point was not consumed before the editor enqueued — chapter 1 genuinely went
+	// through a rewrite (a rework commit drains it from the queue).
 	if len(progress.PendingRewrites) != 0 {
 		t.Fatalf("返工队列应已排空, got %v", progress.PendingRewrites)
 	}
 	if progress.ChapterWordCounts[1] == 1200 {
 		t.Fatal("第 1 章应被真实重写(字数应变化)")
 	}
-	// 核心断言②:排空后停靠点消费,引擎暂停——第 2 章不应被续写。
+	// Core assertion 2: once drained the hold point is consumed and the engine pauses — chapter 2 must not be written.
 	if len(progress.CompletedChapters) != 1 {
 		t.Fatalf("停靠点应在续写第 2 章前暂停, completed=%v", progress.CompletedChapters)
 	}
@@ -1043,9 +1050,9 @@ func TestEngine_PauseWithEditorDispatchWaitsForRewriteQueue(t *testing.T) {
 	}
 }
 
-// TestEngine_BoundaryHoldDoesNotDispatchAnotherWorker 回归：
-// 用户干预只裁定出 boundary hold（无派单）时，引擎必须在当前边界立即
-// 消费 hold 并暂停，不得再多写一章。
+// TestEngine_BoundaryHoldDoesNotDispatchAnotherWorker is a regression: when a user intervention adjudicates
+// only a boundary hold (no dispatch), the engine must consume the hold and pause at the current boundary
+// without writing another chapter.
 func TestEngine_BoundaryHoldDoesNotDispatchAnotherWorker(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	if err := st.Init(); err != nil {
@@ -1080,7 +1087,7 @@ func TestEngine_BoundaryHoldDoesNotDispatchAnotherWorker(t *testing.T) {
 	if !e.start(nil) {
 		t.Fatal("engine start")
 	}
-	// 第 1 章写作期间到达 hold-only 干预（与真实 Steer 时序一致）。
+	// A hold-only intervention arrives while chapter 1 is being written (matching real Steer timing).
 	e.enqueue(controlOp{
 		hold:  &arbiter.AdvanceHoldOp{After: domain.AdvanceHoldAtBoundary, Reason: "先停一下我看看"},
 		facts: mustInterventionFacts(t, st),
@@ -1091,7 +1098,7 @@ func TestEngine_BoundaryHoldDoesNotDispatchAnotherWorker(t *testing.T) {
 	if err != nil || progress == nil {
 		t.Fatalf("load progress: %v", err)
 	}
-	// 干预在第 1 章运行中到达 → 第 1 章写完;停靠点在边界立即消费 → 第 2 章不得开写。
+	// The intervention arrives mid-chapter 1 → chapter 1 finishes; the hold point is consumed at the boundary at once → chapter 2 must not start.
 	if n := len(progress.CompletedChapters); n > 1 {
 		t.Fatalf("boundary hold 后不得再多写一章, completed=%v", progress.CompletedChapters)
 	}
@@ -1152,9 +1159,9 @@ func TestEngine_TargetChapterHoldStopsAtRequestedChapter(t *testing.T) {
 	}
 }
 
-// TestEngine_ExitRaceRestoresPendingDispatch 回归(评审阻断3):
-// 干预入队与引擎退出竞态时,残留的裁定派单不得无声丢弃——PendingSteer 必须回存,
-// pause 类事实动作必须补执行。
+// TestEngine_ExitRaceRestoresPendingDispatch is a regression (review block 3): when an intervention enqueue
+// races the engine's exit, a leftover adjudicated dispatch must not be silently dropped — PendingSteer must be
+// written back and pause-class fact actions must be executed as catch-up.
 func TestEngine_ExitRaceRestoresPendingDispatch(t *testing.T) {
 	st := storepkg.NewStore(t.TempDir())
 	if err := st.Init(); err != nil {
@@ -1167,13 +1174,13 @@ func TestEngine_ExitRaceRestoresPendingDispatch(t *testing.T) {
 		t.Fatalf("phase: %v", err)
 	}
 
-	// worker 挂起直到 ctx 取消:制造"入队后引擎被 abort"的窗口。
+	// The worker hangs until ctx is cancelled: creating the "engine aborted after enqueue" window.
 	blocked := &scriptedChatModel{fn: func([]agentcore.Message) agentcore.Message {
 		time.Sleep(50 * time.Millisecond)
 		return testTextMsg("...")
 	}}
 	writer := subagent.Config{Name: "writer", Description: "slow", Model: blocked, SystemPrompt: "t", MaxTurns: 100}
-	// 需要 outline 让 Route 派 writer
+	// An outline is needed so Route dispatches the writer
 	if err := st.Outline.SaveOutline([]domain.OutlineEntry{{Chapter: 1, Title: "一", CoreEvent: "a"}, {Chapter: 2, Title: "二", CoreEvent: "b"}}); err != nil {
 		t.Fatalf("outline: %v", err)
 	}
@@ -1182,7 +1189,7 @@ func TestEngine_ExitRaceRestoresPendingDispatch(t *testing.T) {
 	if !e.start(nil) {
 		t.Fatal("engine start")
 	}
-	// worker 运行中:入队 pause+dispatch,随即 abort(动作永远等不到下个边界)。
+	// While the worker runs: enqueue pause+dispatch, then abort immediately (the action never reaches a next boundary).
 	e.enqueue(controlOp{
 		hold:     &arbiter.AdvanceHoldOp{After: domain.AdvanceHoldAfterRewritesDrained, Reason: "验收"},
 		dispatch: &arbiter.DispatchOp{Agent: "writer", Task: "重写第 1 章"},

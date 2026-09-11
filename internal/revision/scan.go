@@ -22,7 +22,7 @@ type Change struct {
 func Scan(st *store.Store) ([]Change, error) {
 	progress, err := st.Progress.Load()
 	if err != nil {
-		return nil, fmt.Errorf("读取进度: %w", err)
+		return nil, fmt.Errorf("đọc tiến độ: %w", err)
 	}
 	if progress == nil || len(progress.CompletedChapters) == 0 {
 		return nil, nil
@@ -36,16 +36,16 @@ func Scan(st *store.Store) ([]Change, error) {
 			return nil, err
 		}
 		if record == nil {
-			return nil, fmt.Errorf("第 %d 章缺少接纳记录，当前项目不能安全识别外部修订", chapter)
+			return nil, fmt.Errorf("chương %d thiếu bản ghi tiếp nhận, dự án hiện tại không thể nhận diện an toàn tu chỉnh từ bên ngoài", chapter)
 		}
 		path := filepath.Join(st.Dir(), filepath.FromSlash(fmt.Sprintf("chapters/%02d.md", chapter)))
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("读取第 %d 章工作区正文: %w", chapter, err)
+			return nil, fmt.Errorf("đọc chính văn workspace của chương %d: %w", chapter, err)
 		}
 		content := domain.NormalizeChapterContent(string(data))
 		if strings.TrimSpace(content) == "" {
-			return nil, fmt.Errorf("第 %d 章工作区正文为空，拒绝接纳", chapter)
+			return nil, fmt.Errorf("chính văn workspace của chương %d rỗng, từ chối tiếp nhận", chapter)
 		}
 		digest := domain.ChapterContentSHA256(content)
 		if digest == record.ContentSHA256 {

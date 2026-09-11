@@ -1,14 +1,16 @@
-// Package arbiter 是语义裁定层:按需唤醒的 LLM-as-function。
+// Package arbiter is the semantic decision layer: an LLM-as-function woken on demand.
 //
-// 两平面对称(docs/engine-arbiter.md §二):
+// Two symmetric planes (docs/engine-arbiter.md §2):
 //
-//	确定性平面:  flow.LoadState   → flow.Route     → Instruction
-//	语义平面:    arbiter.Collect* → arbiter.Decide* → XxxDecision
+//	deterministic plane:  flow.LoadState   -> flow.Route     -> Instruction
+//	semantic plane:       arbiter.Collect* -> arbiter.Decide* -> XxxDecision
 //
-// 纪律:Collect 集中 IO(从 store 读齐事实);Decide 除统一执行器管理的模型请求外无 IO,
-// 可用历史 facts 离线重放;执行归 Engine。每场景一对函数 + 专属 Decision 类型,
-// 场景不匹配的动作在类型上不可表达;剩余合法性由各类型的 Validate 拒绝——
-// Arbiter 输出与一切 LLM 输出同样不可信,事实校验是最后一道门。
+// Discipline: Collect centralises IO (reading every fact from the store); Decide does no IO
+// beyond the model request managed by the shared executor, so historical facts can replay it
+// offline; execution belongs to the Engine. Each scenario gets a function pair plus a dedicated
+// Decision type, so an action that does not fit the scenario is unrepresentable in the type, and
+// the remaining legality is rejected by each type's Validate — Arbiter output is as untrustworthy
+// as any LLM output, and fact validation is the last gate.
 package arbiter
 
 import (
@@ -24,11 +26,13 @@ import (
 	"github.com/voocel/ainovel-cli/internal/llmcontract"
 )
 
-// decideMaxTokens 单次裁定的输出上限;裁定 JSON 很小,大头留给推理模型的思考预算
-// (与 userrules.normalizeMaxTokens 同理)。
+// decideMaxTokens is the output cap for a single decision; the decision JSON is tiny, so the bulk
+// is headroom for a reasoning model's thinking budget (the same reasoning as
+// userrules.normalizeMaxTokens).
 const decideMaxTokens = 8192
 
-// decide 将场景契约与业务校验交给统一结构化执行器。除模型调用外无 IO。
+// decide hands the scenario contract and business validation to the shared structured executor.
+// It performs no IO beyond the model call.
 func decide[T any](ctx context.Context, model agentcore.ChatModel, contract llmcontract.Contract, systemPrompt, payload string, validate func(*T) error) (T, error) {
 	out, err := llmcontract.Execute(ctx, model, llmcontract.Request[T]{
 		Contract:     contract,
@@ -39,13 +43,13 @@ func decide[T any](ctx context.Context, model agentcore.ChatModel, contract llmc
 		Agent:        "arbiter",
 		Hooks: llmcontract.Hooks{
 			Resolved: func(res llmcontract.Resolution) {
-				slog.Debug("裁定协议选择", "module", "arbiter",
+				slog.Debug("chọn giao thức phán định", "module", "arbiter",
 					"contract", contract.Name, "structured_mode", res.Mode,
 					"capability_source", res.Source, "provider", res.Provider,
 					"model", res.Model, "schema_fingerprint", contract.Fingerprint())
 			},
 			Correction: func(ev llmcontract.Correction) {
-				slog.Warn("裁定输出自愈", "module", "arbiter", "attempt", ev.Attempt,
+				slog.Warn("tự sửa đầu ra phán định", "module", "arbiter", "attempt", ev.Attempt,
 					"layer", ev.Layer, "structured_mode", ev.Mode, "err", ev.Err)
 			},
 		},
@@ -56,14 +60,15 @@ func decide[T any](ctx context.Context, model agentcore.ChatModel, contract llmc
 	return out, nil
 }
 
-// DispatchOp 是各场景共享的派单动作。
+// DispatchOp is the dispatch action shared by every scenario.
 type DispatchOp struct {
 	Agent string `json:"agent"`
 	Task  string `json:"task"`
 }
 
-// workerNames 是合法派单目标(与 agents.BuildWorkers 注册的一致)。有序切片:
-// 同时充当 schema enum(顺序确定保 fingerprint 稳定)与校验白名单。
+// workerNames are the legal dispatch targets (matching what agents.BuildWorkers registers). It is
+// an ordered slice serving both as the schema enum (a fixed order keeps the fingerprint stable)
+// and as the validation allowlist.
 var workerNames = []string{"architect_long", "architect_short", "writer", "editor"}
 
 func (d *DispatchOp) validate() error {
@@ -71,29 +76,30 @@ func (d *DispatchOp) validate() error {
 		return nil
 	}
 	if !slices.Contains(workerNames, d.Agent) {
-		return fmt.Errorf("dispatch.agent 非法: %q", d.Agent)
+		return fmt.Errorf("dispatch.agent không hợp lệ: %q", d.Agent)
 	}
 	if strings.TrimSpace(d.Task) == "" {
-		return fmt.Errorf("dispatch.task 不能为空")
+		return fmt.Errorf("dispatch.task không được để trống")
 	}
 	return nil
 }
 
-// dispatchSchema 是 DispatchOp 的可空 schema 位:仅需要派单的动作给出对象,
-// 其余情况为 null(strict 模式全字段 required,可选语义用 null 表达)。
+// dispatchSchema is DispatchOp's nullable schema slot: only actions that need a dispatch supply
+// an object, everything else is null (strict mode requires every field, expressing optionality
+// through null).
 func dispatchSchema(desc string) map[string]any {
 	return llmcontract.Nullable(schema.Object(
 		schema.Property("agent", schema.Enum(desc, workerNames...)).Required(),
-		schema.Property("task", schema.String("交给该 worker 的完整任务描述")).Required(),
+		schema.Property("task", schema.String("Mô tả nhiệm vụ đầy đủ giao cho worker đó")).Required(),
 	))
 }
 
-// marshalPayload 序列化事实包;失败即程序错误,必须暴露——静默伪造空事实
-// 会让模型基于假输入误判。
+// marshalPayload serialises the fact pack; a failure is a programming error and must be exposed —
+// silently fabricating empty facts would make the model judge from false input.
 func marshalPayload(v any) (string, error) {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("arbiter: 事实包序列化失败: %w", err)
+		return "", fmt.Errorf("arbiter: tuần tự hóa gói sự thật thất bại: %w", err)
 	}
 	return string(data), nil
 }

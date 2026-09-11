@@ -12,7 +12,7 @@ import (
 	"github.com/voocel/ainovel-cli/internal/store"
 )
 
-// PlanChapterTool 保存章节构思，Agent 自主决定规划粒度。
+// PlanChapterTool saves a chapter's conception, with the Agent deciding the planning granularity for itself.
 type PlanChapterTool struct {
 	store *store.Store
 }
@@ -23,30 +23,30 @@ func NewPlanChapterTool(store *store.Store) *PlanChapterTool {
 
 func (t *PlanChapterTool) Name() string { return "plan_chapter" }
 func (t *PlanChapterTool) Description() string {
-	return "保存章节写作构思。Agent 自主决定规划粒度，不强制场景拆分"
+	return "Lưu ý tưởng viết chương. Agent tự quyết độ chi tiết khi quy hoạch, không bắt buộc chia phân cảnh"
 }
-func (t *PlanChapterTool) Label() string { return "规划章节" }
+func (t *PlanChapterTool) Label() string { return "Quy hoạch chương" }
 
-// 写工具，禁止并发。
+// A write tool; concurrency is forbidden.
 func (t *PlanChapterTool) ReadOnly(_ json.RawMessage) bool        { return false }
 func (t *PlanChapterTool) ConcurrencySafe(_ json.RawMessage) bool { return false }
 
 func (t *PlanChapterTool) Schema() map[string]any {
 	return schema.Object(
-		schema.Property("chapter", schema.Int("章节号")).Required(),
-		schema.Property("title", schema.String("暂定章节标题；写作后可按正文调整")).Required(),
-		schema.Property("goal", schema.String("本章目标")).Required(),
-		schema.Property("conflict", schema.String("核心冲突")).Required(),
-		schema.Property("hook", schema.String("章末钩子")).Required(),
-		schema.Property("emotion_arc", schema.String("情绪曲线")),
-		schema.Property("notes", schema.String("自由备忘（任何你觉得写作时需要记住的东西）")),
-		schema.Property("required_beats", schema.Array("本章必须完成的推进项", schema.String(""))),
-		schema.Property("forbidden_moves", schema.Array("本章明确不能发生的推进", schema.String(""))),
-		schema.Property("continuity_checks", schema.Array("本章需特别核对的连续性点", schema.String(""))),
-		schema.Property("evaluation_focus", schema.Array("Editor 重点检查项", schema.String(""))),
-		schema.Property("emotion_target", schema.String("可选：本章希望读者主要感受到的情绪")),
-		schema.Property("payoff_points", schema.Array("可选：关键章希望回应的情节点或兑现点", schema.String(""))),
-		schema.Property("hook_goal", schema.String("可选：章末希望驱动的追读欲望或悬念目标")),
+		schema.Property("chapter", schema.Int("Số chương")).Required(),
+		schema.Property("title", schema.String("Tiêu đề chương tạm thời; có thể chỉnh theo chính văn sau khi viết")).Required(),
+		schema.Property("goal", schema.String("Mục tiêu của chương này")).Required(),
+		schema.Property("conflict", schema.String("Xung đột cốt lõi")).Required(),
+		schema.Property("hook", schema.String("Móc câu cuối chương")).Required(),
+		schema.Property("emotion_arc", schema.String("Cung cảm xúc")),
+		schema.Property("notes", schema.String("Ghi chú tự do (bất cứ điều gì bạn thấy cần nhớ khi viết)")),
+		schema.Property("required_beats", schema.Array("Các bước tiến bắt buộc phải hoàn thành trong chương này", schema.String(""))),
+		schema.Property("forbidden_moves", schema.Array("Những diễn tiến tuyệt đối không được xảy ra trong chương này", schema.String(""))),
+		schema.Property("continuity_checks", schema.Array("Các điểm liên tục cần đối chiếu riêng trong chương này", schema.String(""))),
+		schema.Property("evaluation_focus", schema.Array("Các mục Editor cần kiểm tra trọng tâm", schema.String(""))),
+		schema.Property("emotion_target", schema.String("Tùy chọn: cảm xúc bạn muốn độc giả chủ yếu cảm nhận ở chương này")),
+		schema.Property("payoff_points", schema.Array("Tùy chọn: các điểm tình tiết hoặc điểm hồi đáp muốn trả ở chương then chốt", schema.String(""))),
+		schema.Property("hook_goal", schema.String("Tùy chọn: mục tiêu khơi gợi ham muốn đọc tiếp hoặc treo lửng ở cuối chương")),
 	)
 }
 
@@ -63,17 +63,19 @@ func (t *PlanChapterTool) Execute(_ context.Context, args json.RawMessage) (json
 		return nil, fmt.Errorf("load progress: %w: %w", errs.ErrStoreRead, err)
 	}
 	completed := progress != nil && slices.Contains(progress.CompletedChapters, plan.Chapter)
-	// 返工队列里的章节是唯一例外：已完成却要重写时，"该重写成什么样"必须有地方落盘，
-	// 而 Contract（goal / payoff_points / continuity_checks / hook_goal）正是那份指令。
-	// 此前这里一律拒绝，导致 revise_outline（只许改未写章节）、save_foundation(outline)
-	// （写作期禁止全量覆盖）与本工具三路皆堵——架构师无处可写重写方向，实测空转 4 次后熔断。
+	// A chapter in the rework queue is the sole exception: when a completed chapter must be rewritten, "what the
+	// rewrite should look like" needs somewhere to be persisted, and the Contract (goal / payoff_points /
+	// continuity_checks / hook_goal) is exactly that instruction. Refusing here outright used to block all three routes
+	// — revise_outline (only unwritten chapters), save_foundation(outline) (no full overwrite during writing) and this
+	// tool — leaving the architect nowhere to write the rewrite direction, measured as four idle spins before the
+	// circuit breaker.
 	queuedForRewrite := progress != nil && slices.Contains(progress.PendingRewrites, plan.Chapter)
 	if completed && !queuedForRewrite {
 		return json.Marshal(map[string]any{
 			"chapter":   plan.Chapter,
 			"skipped":   true,
 			"completed": true,
-			"reason":    fmt.Sprintf("第 %d 章已提交完成，不能重新规划", plan.Chapter),
+			"reason":    fmt.Sprintf("Chương %d đã commit xong, không thể quy hoạch lại", plan.Chapter),
 		})
 	}
 	if err := t.store.Progress.ValidateChapterWork(plan.Chapter); err != nil {
@@ -86,10 +88,11 @@ func (t *PlanChapterTool) Execute(_ context.Context, args json.RawMessage) (json
 	if err := t.store.Drafts.SaveChapterPlan(plan); err != nil {
 		return nil, fmt.Errorf("save chapter plan: %w", err)
 	}
-	// 记录返工指令不等于开始写这一章：Engine 在派发 writer 时已预标进行中
-	// (engine.go)，draft_chapter 落笔时也会再标一次，所以这里对返工章是多余的。
-	// 而 StartChapter 会无条件改写 InProgressChapter 并清空 CompletedScenes——
-	// 若规划者为队列里的第 20 章写指令、而 writer 正在第 13 章，指针会被拽走。
+	// Recording a rework instruction is not the same as starting to write the chapter: the Engine already pre-marks it
+	// in progress when dispatching the writer (engine.go) and draft_chapter marks it again when the pen touches paper,
+	// so it would be redundant here for a rework chapter. StartChapter, by contrast, unconditionally rewrites
+	// InProgressChapter and clears CompletedScenes — if the planner wrote an instruction for chapter 20 in the queue
+	// while the writer is on chapter 13, the pointer would be yanked away.
 	if !queuedForRewrite || progress.InProgressChapter == plan.Chapter {
 		if err := t.store.Progress.StartChapter(plan.Chapter); err != nil {
 			return nil, fmt.Errorf("mark chapter in progress: %w", err)
@@ -106,7 +109,7 @@ func (t *PlanChapterTool) Execute(_ context.Context, args json.RawMessage) (json
 	return json.Marshal(map[string]any{
 		"planned":   true,
 		"chapter":   plan.Chapter,
-		"next_step": "立即调用 draft_chapter(chapter=本章节号, content=完整正文字符串) 写入正文，不要重复规划同一章",
+		"next_step": "Gọi ngay draft_chapter(chapter=<số chương>, content=<chuỗi chính văn đầy đủ>) để ghi chính văn, đừng quy hoạch lại cùng một chương",
 	})
 }
 

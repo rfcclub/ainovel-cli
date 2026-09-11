@@ -7,7 +7,7 @@ import (
 	"github.com/voocel/ainovel-cli/internal/stylestat"
 )
 
-// Outcome 是单个 case 的门禁结论。
+// Outcome is the gate verdict for a single case.
 type Outcome string
 
 const (
@@ -16,7 +16,7 @@ const (
 	Fail Outcome = "FAIL"
 )
 
-// Issue 是门禁判定中的一条记录。
+// Issue is one record in a gate judgement.
 type Issue struct {
 	Kind     string `json:"kind"`               // hard_fail / warning / passed
 	Source   string `json:"source"`             // runtime / finding:<rule> / contract:<name>
@@ -24,7 +24,7 @@ type Issue struct {
 	Detail   string `json:"detail"`
 }
 
-// Metrics 是从 diag.Stats 直接借来的概览指标——eval 不重算。
+// Metrics is the overview metric borrowed directly from diag.Stats — eval never recomputes it.
 type Metrics struct {
 	CompletedChapters int              `json:"completed_chapters"`
 	TotalChapters     int              `json:"total_chapters"`
@@ -43,8 +43,9 @@ type Metrics struct {
 	Stylestat         *stylestat.Stats `json:"stylestat,omitempty"`
 }
 
-// Result 是单个 case 的完整评测结果。对齐设计稿三层模型：
-// HardFails（阻塞）/ Warnings（回归，WARN）/ Notes（信息性，不影响门禁）。
+// Result is the complete evaluation result for a single case, aligned with the three-layer model of
+// the design: HardFails (blocking) / Warnings (regression, WARN) / Notes (informational, no effect
+// on the gate).
 type Result struct {
 	CaseID    string  `json:"case_id"`
 	Category  string  `json:"category"`
@@ -60,8 +61,9 @@ type Result struct {
 	Dir       string  `json:"dir"`
 }
 
-// Grade 把采集结果按 case 契约与 diag Finding 严重度映射成门禁结论。这是 MVP 的核心：
-// 确定性证据决定 PASS/WARN/FAIL，不掺主观判断。
+// Grade maps the collected result onto a gate verdict using the case contract and diag Finding
+// severity. This is the heart of the MVP: deterministic evidence decides PASS/WARN/FAIL, with no
+// subjective judgement mixed in.
 func Grade(c Case, col Collected) Result {
 	r := Result{
 		CaseID:   c.ID,
@@ -71,22 +73,24 @@ func Grade(c Case, col Collected) Result {
 		Metrics:  metricsFrom(col),
 	}
 
-	// 1. 运行时错误：headless 返回 error 直接 hard fail（失败显式暴露）。
+	// 1. Runtime error: a headless error is a hard fail straight away (failures are exposed explicitly).
 	if col.RuntimeErr != "" {
 		r.HardFails = append(r.HardFails, Issue{
-			Kind: "hard_fail", Source: "runtime", Detail: "运行时错误: " + col.RuntimeErr,
+			Kind: "hard_fail", Source: "runtime", Detail: "Lỗi runtime: " + col.RuntimeErr,
 		})
 	}
 
-	// 1b. 工件读取失败：契约依赖的事实读不到，宁可 hard fail 也不 false pass（fail-loud）。
+	// 1b. Artefact read failure: when a contract-dependent fact cannot be read, hard fail rather than
+	// pass falsely (fail-loud).
 	for _, le := range col.LoadErrors {
 		r.HardFails = append(r.HardFails, Issue{
-			Kind: "hard_fail", Source: "load", Detail: "工件读取失败: " + le,
+			Kind: "hard_fail", Source: "load", Detail: "Đọc sản phẩm thất bại: " + le,
 		})
 	}
 
-	// 2. diag Findings 三层映射（rank 越小越严重）：
-	//    超过 max_severity → hard fail；等于 → warning（回归）；低于 → note（信息性，不影响门禁）。
+	// 2. Three-layer mapping of diag Findings (the smaller the rank, the more severe):
+	//    above max_severity -> hard fail; equal -> warning (regression); below -> note (informational,
+	//    no effect on the gate).
 	maxRank := severityRank(c.Gate.MaxSeverity)
 	for _, f := range col.Report.Findings {
 		sev := string(f.Severity)
@@ -104,10 +108,10 @@ func Grade(c Case, col Collected) Result {
 		}
 	}
 
-	// 3. case 契约断言：薄断言，只验本 case 强相关的预期。
+	// 3. Case contract assertions: thin assertions verifying only this case's tightly coupled expectations.
 	gradeContracts(c, col, &r)
 
-	// 4. 汇总结论。
+	// 4. Aggregate the verdict.
 	switch {
 	case len(r.HardFails) > 0:
 		r.Outcome = Fail
@@ -119,7 +123,7 @@ func Grade(c Case, col Collected) Result {
 	return r
 }
 
-// Delta 描述 variant 相对 baseline 的确定性差异。
+// Delta describes the deterministic difference of variant against baseline.
 type Delta struct {
 	Outcome   Outcome      `json:"outcome"`
 	HardFails []Issue      `json:"hard_fails,omitempty"`
@@ -148,7 +152,7 @@ type StyleDelta struct {
 	TitleMixedDelta      int     `json:"title_mixed_delta,omitempty"`
 }
 
-// GradeDelta 只比较确定性事实：variant 比 baseline 是否更差。
+// GradeDelta compares deterministic facts only: whether variant is worse than baseline.
 func GradeDelta(c Case, baseline, variant Result) Delta {
 	d := Delta{Metrics: deltaMetrics(baseline, variant)}
 
@@ -163,51 +167,51 @@ func GradeDelta(c Case, baseline, variant Result) Delta {
 	}
 
 	if baseline.Outcome == Fail {
-		note("baseline", "baseline 已失败，本轮 delta 只能作为参考")
+		note("baseline", "baseline đã thất bại, delta lần này chỉ mang tính tham khảo")
 	}
 	if variant.Outcome == Fail {
-		hardFail("variant", "variant 自身门禁失败")
+		hardFail("variant", "bản thân variant không qua được cổng kiểm")
 	}
 	if d.Metrics.CriticalFindings > 0 {
-		hardFail("delta:critical_findings", fmt.Sprintf("critical findings 增加 %d", d.Metrics.CriticalFindings))
+		hardFail("delta:critical_findings", fmt.Sprintf("critical findings tăng %d", d.Metrics.CriticalFindings))
 	}
 	if variant.Metrics.CompletedChapters < baseline.Metrics.CompletedChapters {
-		hardFail("delta:completed_chapters", fmt.Sprintf("完成章节减少：baseline=%d variant=%d",
+		hardFail("delta:completed_chapters", fmt.Sprintf("Số chương hoàn thành giảm: baseline=%d variant=%d",
 			baseline.Metrics.CompletedChapters, variant.Metrics.CompletedChapters))
 	}
 	if d.Metrics.WarningFindings > 0 {
-		warn("delta:warning_findings", fmt.Sprintf("warning findings 增加 %d", d.Metrics.WarningFindings))
+		warn("delta:warning_findings", fmt.Sprintf("warning findings tăng %d", d.Metrics.WarningFindings))
 	}
 	if baseline.Metrics.TotalWords > 0 {
 		ratio := d.Metrics.TotalWordsRatio
 		if ratio > 0 && (ratio < 0.6 || ratio > 1.8) {
-			warn("delta:total_words", fmt.Sprintf("总字数比例 %.2f 超出 0.6~1.8", ratio))
+			warn("delta:total_words", fmt.Sprintf("Tỷ lệ tổng số chữ %.2f vượt khoảng 0.6~1.8", ratio))
 		}
 	}
 	if deltaGateEnabled(c.Gate.MaxToolCallDeltaRatio) && d.Metrics.ToolCallDeltaRatio > *c.Gate.MaxToolCallDeltaRatio {
-		warn("delta:tool_calls", fmt.Sprintf("tool calls 增幅 %.1f%% 超过阈值 %.1f%%",
+		warn("delta:tool_calls", fmt.Sprintf("Mức tăng tool calls %.1f%% vượt ngưỡng %.1f%%",
 			d.Metrics.ToolCallDeltaRatio*100, *c.Gate.MaxToolCallDeltaRatio*100))
 	}
 	if deltaGateEnabled(c.Gate.MaxCostDeltaRatio) && d.Metrics.CostDeltaRatio > *c.Gate.MaxCostDeltaRatio {
-		warn("delta:cost", fmt.Sprintf("成本增幅 %.1f%% 超过阈值 %.1f%%",
+		warn("delta:cost", fmt.Sprintf("Mức tăng chi phí %.1f%% vượt ngưỡng %.1f%%",
 			d.Metrics.CostDeltaRatio*100, *c.Gate.MaxCostDeltaRatio*100))
 	}
 	if deltaGateEnabled(c.Gate.MaxCostDeltaRatio) && d.Metrics.InputTokenDeltaRatio > *c.Gate.MaxCostDeltaRatio {
-		warn("delta:input_tokens", fmt.Sprintf("输入 token 增幅 %.1f%% 超过阈值 %.1f%%",
+		warn("delta:input_tokens", fmt.Sprintf("Mức tăng input token %.1f%% vượt ngưỡng %.1f%%",
 			d.Metrics.InputTokenDeltaRatio*100, *c.Gate.MaxCostDeltaRatio*100))
 	}
 	if deltaGateEnabled(c.Gate.MaxCostDeltaRatio) && d.Metrics.OutputTokenDeltaRatio > *c.Gate.MaxCostDeltaRatio {
-		warn("delta:output_tokens", fmt.Sprintf("输出 token 增幅 %.1f%% 超过阈值 %.1f%%",
+		warn("delta:output_tokens", fmt.Sprintf("Mức tăng output token %.1f%% vượt ngưỡng %.1f%%",
 			d.Metrics.OutputTokenDeltaRatio*100, *c.Gate.MaxCostDeltaRatio*100))
 	}
 	if sd := d.Metrics.Stylestat; sd != nil {
 		if sd.Status == "insufficient_sample" {
-			note("stylestat", "样本不足，至少 5 章才计算文体回归")
+			note("stylestat", "Không đủ mẫu, cần ít nhất 5 chương mới tính hồi quy văn phong")
 		} else if styleRegressed(sd) {
 			issue := Issue{
 				Kind:   "warning",
 				Source: "delta:stylestat",
-				Detail: fmt.Sprintf("文体指标回归：pattern_top %+0.1f，ending_short %+0.2f，repeated %+d，title_mixed %+d",
+				Detail: fmt.Sprintf("Chỉ số văn phong thoái hóa: pattern_top %+0.1f, ending_short %+0.2f, repeated %+d, title_mixed %+d",
 					sd.PatternTopPerChapter, sd.EndingShortRatio, sd.RepeatedSentences, sd.TitleMixedDelta),
 			}
 			if c.Gate.StylestatRegression == "block" {
@@ -334,7 +338,7 @@ func gradeContracts(c Case, col Collected, r *Result) {
 	if e.Phase != "" {
 		got := phaseOf(col)
 		if got != e.Phase {
-			hardFail("phase", fmt.Sprintf("期望 phase=%s，实际 %s", e.Phase, got))
+			hardFail("phase", fmt.Sprintf("Mong đợi phase=%s, thực tế %s", e.Phase, got))
 		} else {
 			pass("phase", "phase="+got)
 		}
@@ -343,9 +347,9 @@ func gradeContracts(c Case, col Collected, r *Result) {
 	if e.MinCompletedChapters > 0 {
 		got := r.Metrics.CompletedChapters
 		if got < e.MinCompletedChapters {
-			hardFail("min_completed_chapters", fmt.Sprintf("期望 ≥%d 章，实际 %d 章", e.MinCompletedChapters, got))
+			hardFail("min_completed_chapters", fmt.Sprintf("Mong đợi ≥%d chương, thực tế %d chương", e.MinCompletedChapters, got))
 		} else {
-			pass("min_completed_chapters", fmt.Sprintf("完成 %d 章", got))
+			pass("min_completed_chapters", fmt.Sprintf("Hoàn thành %d chương", got))
 		}
 	}
 
@@ -355,7 +359,7 @@ func gradeContracts(c Case, col Collected, r *Result) {
 		case err != nil:
 			hardFail("checkpoint", err.Error())
 		case !ok:
-			hardFail("checkpoint", "缺少 checkpoint: "+spec)
+			hardFail("checkpoint", "Thiếu checkpoint: "+spec)
 		default:
 			pass("checkpoint", spec)
 		}
@@ -363,9 +367,9 @@ func gradeContracts(c Case, col Collected, r *Result) {
 
 	for _, sig := range e.NoPending {
 		if col.Pending[sig] {
-			hardFail("no_pending", "残留信号: "+sig)
+			hardFail("no_pending", "Tín hiệu còn sót: "+sig)
 		} else {
-			pass("no_pending", sig+" 已清空")
+			pass("no_pending", sig+" đã được xóa sạch")
 		}
 	}
 }
@@ -398,7 +402,7 @@ func metricsFrom(col Collected) Metrics {
 	return m
 }
 
-// phaseOf 优先取 progress 的 phase，回落到 diag.Stats（两者同源）。
+// phaseOf takes the phase from progress first, falling back to diag.Stats (both share a source).
 func phaseOf(col Collected) string {
 	if col.Progress != nil {
 		return string(col.Progress.Phase)
@@ -413,7 +417,7 @@ func findingDetail(f diag.Finding) string {
 	return f.Title
 }
 
-// ── 严重度 ─────────────────────────────────────────────
+// -- Severity ---------------------------------------------
 
 var severityRanks = map[string]int{"critical": 0, "warning": 1, "info": 2}
 
@@ -422,7 +426,8 @@ func validSeverity(s string) bool {
 	return ok
 }
 
-// severityRank 越小越严重；未知严重度按最不严重处理，避免误判 hard fail。
+// severityRank: the smaller, the more severe. An unknown severity is treated as the least severe,
+// avoiding a misjudged hard fail.
 func severityRank(s string) int {
 	if r, ok := severityRanks[s]; ok {
 		return r
