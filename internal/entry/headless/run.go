@@ -83,12 +83,21 @@ func Run(cfg bootstrap.Config, bundle assets.Bundle, opts Options) error {
 	return consume(eng, stdout, stderr, false)
 }
 
+// consume drains the engine's event, stream and done channels until the run ends.
+//
+// A closed channel means the engine stopped, but not that it succeeded: a worker failure that
+// exhausts the Arbiter path, a budget stop or a pause all end the run with the book unfinished.
+// Returning nil there left headless reporting success on a run that produced nothing — the user
+// saw a silent exit and no way to tell "done" from "died".
+//
+// The verdict is read from the engine's own facts (completed chapters vs the outline) rather
+// than from channel state, because the channels close identically in both cases.
 func consume(eng *host.Host, stdout, stderr io.Writer, roundHasContent bool) error {
 	for {
 		select {
 		case ev, ok := <-eng.Events():
 			if !ok {
-				return nil
+				return runOutcome(eng)
 			}
 			writeEvent(stderr, ev)
 		case delta, ok := <-eng.Stream():
@@ -113,7 +122,7 @@ func consume(eng *host.Host, stdout, stderr io.Writer, roundHasContent bool) err
 			roundHasContent = true
 		case _, ok := <-eng.Done():
 			if !ok {
-				return nil
+				return runOutcome(eng)
 			}
 			return drainPending(eng, stdout, stderr, roundHasContent)
 		}
@@ -152,9 +161,27 @@ func drainPending(eng *host.Host, stdout, stderr io.Writer, roundHasContent bool
 					return err
 				}
 			}
-			return nil
+			return runOutcome(eng)
 		}
 	}
+}
+
+// runOutcome turns the engine's terminal state into an error. A finished book is success; any
+// other stop is a failure the caller must see, because headless has no interactive surface to
+// explain what happened.
+func runOutcome(eng *host.Host) error {
+	snap := eng.Snapshot()
+	if snap.Phase == string(domain.PhaseComplete) {
+		return nil
+	}
+	completed, total := snap.CompletedCount, snap.TotalChapters
+	if total > 0 && completed >= total {
+		return nil
+	}
+	if total > 0 {
+		return fmt.Errorf("phiên chạy kết thúc nhưng truyện chưa hoàn thành (%d/%d chương, phase=%s)", completed, total, snap.Phase)
+	}
+	return fmt.Errorf("phiên chạy kết thúc khi chưa sinh được chương nào (phase=%s)", snap.Phase)
 }
 
 func writeEvent(w io.Writer, ev host.Event) {
